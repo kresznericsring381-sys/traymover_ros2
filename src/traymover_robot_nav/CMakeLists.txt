@@ -25,10 +25,14 @@ if(BUILD_TESTING)
     test_pcd_clean
     test/test_pcd_clean.py
   )
+  ament_add_pytest_test(
+    test_nav_simple_config
+    test/test_nav_simple_config.py
+  )
 endif()
 
 install(
-  DIRECTORY launch config map rviz
+  DIRECTORY launch config map rviz behavior_trees
   DESTINATION share/${PROJECT_NAME}
 )
 

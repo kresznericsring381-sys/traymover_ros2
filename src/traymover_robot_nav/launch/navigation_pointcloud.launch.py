@@ -6,16 +6,18 @@ navigation-friendly derivatives:
                                  exclusion box removed so a trailing operator
                                  perturbs NDT less while still preserving most
                                  side / rear walls for U-turn alignment.
-  * /point_cloud_nav           - base_link-frame cloud for 2D obstacle slicing.
-  * /scan                      - 270 degree low-height LaserScan for Nav2 and
-                                 collision_monitor: richer side coverage for
-                                 turning, while still leaving the direct rear
-                                 sector outside the 2D scan.
+  * /point_cloud_nav           - base_link-frame cloud retained for tools that
+                                 still want a navigation cloud.
+
+The LaserScan bridge is off by default. Option 10 intentionally avoids dynamic
+obstacle and stop logic; consumers that still need /scan can pass
+publish_scan:=true.
 """
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -28,6 +30,7 @@ def generate_launch_description():
     nav_cloud_topic = LaunchConfiguration('nav_cloud_topic')
     scan_topic = LaunchConfiguration('scan_topic')
     target_frame = LaunchConfiguration('target_frame')
+    publish_scan = LaunchConfiguration('publish_scan')
 
     pointcloud_preprocessor = Node(
         package='traymover_robot_nav',
@@ -76,6 +79,7 @@ def generate_launch_description():
             'inf_epsilon': 1.0,
             'use_sim_time': use_sim_time,
         }],
+        condition=IfCondition(publish_scan),
         output='screen',
     )
 
@@ -86,6 +90,7 @@ def generate_launch_description():
         DeclareLaunchArgument('nav_cloud_topic', default_value='/point_cloud_nav'),
         DeclareLaunchArgument('scan_topic', default_value='/scan'),
         DeclareLaunchArgument('target_frame', default_value='base_link'),
+        DeclareLaunchArgument('publish_scan', default_value='false'),
         pointcloud_preprocessor,
         scan_bridge,
     ])

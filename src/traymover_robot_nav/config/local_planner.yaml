@@ -21,9 +21,11 @@ localPlanner:
     laserVoxelSize: 0.05
     terrainVoxelSize: 0.2
 
-    # Use /terrain_map from terrain_analysis for obstacle reasoning
+    # Simplified option 14: pick the primitive toward the goal and drive it.
+    # Keep terrain_map visible for RViz, but do not stop/reject paths based on
+    # obstacle points in this first-pass navigation mode.
     useTerrainAnalysis: true
-    checkObstacle: true
+    checkObstacle: false
     checkRotObstacle: false
 
     # Local planning window

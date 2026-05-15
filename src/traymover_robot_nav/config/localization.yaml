@@ -1,21 +1,29 @@
 /**:
     ros__parameters:
       registration_method: "NDT_OMP"
-      # Tightened for indoor NDT convergence after observing 6DOF divergence
-      # (z=2.9m, r/p=17deg). Finer voxels + stricter epsilon + more iters.
-      # Slightly relaxed from 0.20. Large heading changes temporarily degrade
-      # the match score even when the alignment is still usable; 0.35 still
-      # rejects the obviously bad 0.8+ minima we saw, while letting NDT keep
-      # up during sharper turns.
-      score_threshold: 0.35
+      # Live navigation showed good-looking goals aborting because NDT was
+      # rejecting every 0.7-0.9 match and keeping an increasingly stale TF.
+      # Accept usable indoor matches while still rejecting the multi-meter
+      # failures previously seen with scores well above 1.0.
+      score_threshold: 1.0
       ndt_resolution: 0.5
       ndt_step_size: 0.1
       ndt_num_threads: 4
       ndt_max_iterations: 50
       transform_epsilon: 0.001
-      voxel_leaf_size: 0.1
-      scan_max_range: 100.0
+      # Keep far-wall returns as NDT evidence, but cap the range so each
+      # alignment does not starve Nav2/TF callbacks on the robot CPU.
+      scan_max_range: 120.0
       scan_min_range: 0.5
+      # Mildly up-weight far returns by duplicating them in the source cloud
+      # after voxel filtering. This is intentionally conservative: enough to
+      # matter for large-wall yaw constraints, not enough to let sparse far
+      # noise dominate.
+      far_point_boost_min_range: 15.0
+      far_point_boost_factor: 2
+      # Downsample enough to keep NDT bounded while preserving long straight
+      # wall geometry for yaw and lateral alignment.
+      voxel_leaf_size: 0.15
       scan_period: 0.1
       use_pcd_map: true
       map_path: "/home/wheeltec/traymover_ros2/src/traymover_robot_slam/FAST_LIO/PCD/traymover_20260418_183556.pcd"
@@ -66,9 +74,9 @@
       # FAST_LIO drift uncorrected until the robot was already badly skewed.
       max_pose_jump_translation: 0.35
       max_pose_jump_rotation: 0.45
-      # Re-align more often so FAST_LIO drift does not build up through long
-      # heading changes before NDT is allowed to correct it.
-      ndt_align_interval_s: 1.0
-      # Apply corrections a bit faster than before. 0.45 still damps noise,
-      # but reduces the "laggy" feel after a successful large-angle realign.
-      map_odom_smoothing: 0.45
+      # Let FAST_LIO carry short-term odometry and run NDT as a bounded drift
+      # correction; 1 Hz NDT was starving TF rebroadcast during navigation.
+      ndt_align_interval_s: 2.0
+      # Apply accepted NDT corrections gently so map->odom does not jump the
+      # controller while still correcting slow drift.
+      map_odom_smoothing: 0.30

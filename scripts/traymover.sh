@@ -503,7 +503,7 @@ action_start_nav() {
     spawn_in_terminal "traymover: chassis_serial" \
         "ros2 launch turn_on_traymover_robot base_serial.launch.py odom_source_mode:=none"
 
-    echo "[traymover] Starting LiDAR driver (navigation owns /scan) ..."
+    echo "[traymover] Starting LiDAR driver (Nav2 is not using scan-based avoidance) ..."
     spawn_in_terminal "traymover: lidar" \
         "ros2 launch turn_on_traymover_robot traymover_lidar.launch.py enable_scan_bridge:=false"
 
@@ -523,9 +523,8 @@ action_start_nav() {
   Health checks:
     ros2 topic info /odom -v
     ./scripts/check_localization.sh
-  Phase 1 quick check (no goal, fake Nav2 output):
-    ros2 topic pub -r 10 /cmd_vel_nav geometry_msgs/msg/Twist "{linear: {x: 0.15}}"
-  — then walk in front of the robot; the red StopPolygon should trigger and /cmd_vel should go to zero.
+    ros2 action list | grep navigate_to_pose
+    ros2 topic echo --once /cmd_vel
 EOF
 }
 

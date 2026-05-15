@@ -8,11 +8,9 @@ Brings up the full runtime chain:
      FAST_LIO frames into base_link + lidar_localization_ros2 (NDT_OMP,
      publishes map -> odom correction against the prebuilt PCD).
   2. nav2 navigation stack — map_server, planner_server, controller_server,
-     bt_navigator, behavior_server, waypoint_follower, lifecycle_manager.
-     controller + behavior cmd_vel is remapped to /cmd_vel_nav.
-  4. collision_monitor.launch.py — filters /cmd_vel_nav -> /cmd_vel as the
-     obstacle-stop safety net.
-  5. (optional) RViz — set launch_rviz:=true.
+     bt_navigator, lifecycle_manager.
+     controller cmd_vel goes directly to /cmd_vel.
+  3. (optional) RViz — set launch_rviz:=true.
 
 Common launch invocations:
   # Preferred for real-hardware test (single command, one window):
@@ -45,9 +43,7 @@ NAV2_LIFECYCLE_NODES = [
     'map_server',
     'planner_server',
     'controller_server',
-    'behavior_server',
     'bt_navigator',
-    'waypoint_follower',
 ]
 
 # Keep in sync with default_pcd in lidar_localization.launch.py and
@@ -69,9 +65,11 @@ def generate_launch_description():
     bringup_share = get_package_share_directory('turn_on_traymover_robot')
 
     default_params = os.path.join(nav_share, 'config', 'nav2_params.yaml')
-    collision_params = os.path.join(nav_share, 'config', 'collision_monitor.yaml')
     default_map = os.path.join(nav_share, 'map', 'traymover_2d.yaml')
     default_rviz = os.path.join(nav_share, 'rviz', 'traymover_nav.rviz')
+    default_bt = os.path.join(nav_share, 'behavior_trees', 'simple_navigate_to_pose.xml')
+    default_through_poses_bt = os.path.join(
+        nav_share, 'behavior_trees', 'simple_navigate_through_poses.xml')
     pointcloud_launch = os.path.join(nav_share, 'launch', 'navigation_pointcloud.launch.py')
 
     params_file = LaunchConfiguration('params_file')
@@ -82,6 +80,8 @@ def generate_launch_description():
     launch_rviz = LaunchConfiguration('launch_rviz')
     rviz_config = LaunchConfiguration('rviz_config')
     pcd_path = LaunchConfiguration('pcd_path')
+    bt_xml = LaunchConfiguration('bt_xml')
+    through_poses_bt_xml = LaunchConfiguration('through_poses_bt_xml')
 
     configured_params = ParameterFile(
         RewrittenYaml(
@@ -89,6 +89,8 @@ def generate_launch_description():
             param_rewrites={
                 'yaml_filename': map_yaml,
                 'use_sim_time': use_sim_time,
+                'default_nav_to_pose_bt_xml': bt_xml,
+                'default_nav_through_poses_bt_xml': through_poses_bt_xml,
             },
             convert_types=True,
         ),
@@ -121,6 +123,7 @@ def generate_launch_description():
             'nav_cloud_topic': '/point_cloud_nav',
             'scan_topic': '/scan',
             'target_frame': 'base_link',
+            'publish_scan': 'false',
         }.items(),
     )
 
@@ -132,11 +135,14 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'pcd_path': pcd_path,
             'cloud_topic': '/point_cloud_localization',
+            'max_map_odom_update_translation': '0.30',
+            'max_map_odom_update_rotation': '0.12',
         }.items(),
     )
 
-    # 2) Nav2 lifecycle nodes. controller_server cmd_vel -> /cmd_vel_nav
-    #    so collision_monitor can filter before reaching the serial driver.
+    # 2) Nav2 lifecycle nodes. Cmd_vel is intentionally direct and the BT is
+    #    plan->follow only: no dynamic obstacle monitor, interlock topic,
+    #    scan-based stop layer, or recovery behaviors.
     map_server = Node(
         package='nav2_map_server',
         executable='map_server',
@@ -157,27 +163,11 @@ def generate_launch_description():
         name='controller_server',
         output='screen',
         parameters=[configured_params],
-        remappings=[('cmd_vel', 'cmd_vel_nav')],
-    )
-    behaviors = Node(
-        package='nav2_behaviors',
-        executable='behavior_server',
-        name='behavior_server',
-        output='screen',
-        parameters=[configured_params],
-        remappings=[('cmd_vel', 'cmd_vel_nav')],
     )
     bt = Node(
         package='nav2_bt_navigator',
         executable='bt_navigator',
         name='bt_navigator',
-        output='screen',
-        parameters=[configured_params],
-    )
-    waypoint = Node(
-        package='nav2_waypoint_follower',
-        executable='waypoint_follower',
-        name='waypoint_follower',
         output='screen',
         parameters=[configured_params],
     )
@@ -193,19 +183,7 @@ def generate_launch_description():
         }],
     )
 
-    # 3) Obstacle-stop safety net.
-    # Explicitly pin params_file so the outer launch's same-named
-    # LaunchConfiguration doesn't leak nav2_params.yaml into this sub-launch.
-    collision_monitor = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(nav_share, 'launch', 'collision_monitor.launch.py')),
-        launch_arguments={
-            'use_sim_time': use_sim_time,
-            'params_file': collision_params,
-        }.items(),
-    )
-
-    # 4) Optional RViz
+    # 3) Optional RViz
     rviz = Node(
         package='rviz2',
         executable='rviz2',
@@ -227,6 +205,12 @@ def generate_launch_description():
             description='Also start RViz with the navigation profile.'),
         DeclareLaunchArgument('rviz_config', default_value=default_rviz),
         DeclareLaunchArgument(
+            'bt_xml', default_value=default_bt,
+            description='Behavior tree used for option-10 point-to-point navigation.'),
+        DeclareLaunchArgument(
+            'through_poses_bt_xml', default_value=default_through_poses_bt,
+            description='Recovery-free through-poses tree loaded by bt_navigator.'),
+        DeclareLaunchArgument(
             'pcd_path', default_value=find_default_pcd(),
             description='Prior PCD map loaded by lidar_localization_ros2.'),
         hw_base,
@@ -236,10 +220,7 @@ def generate_launch_description():
         map_server,
         planner,
         controller,
-        behaviors,
         bt,
-        waypoint,
         lifecycle_mgr,
-        collision_monitor,
         rviz,
     ])

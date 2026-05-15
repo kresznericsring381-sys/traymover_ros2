@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Bridge CMU pathFollower's /cmd_vel (TwistStamped) to Nav2-style
-/cmd_vel_nav (Twist), gated on having received a recent /way_point.
+"""Bridge CMU pathFollower's /cmd_vel (TwistStamped) to base /cmd_vel
+(Twist), gated on having received a recent /way_point.
 
 Why the gate: CMU localPlanner runs with autonomyMode=true + a default
 goalX/goalY of (0, 0). As soon as the robot's FAST_LIO pose drifts off
@@ -9,8 +9,8 @@ an implicit goal and emits a /path. pathFollower then drives at
 autonomySpeed *without any user command*. CMU's reference setup relies
 on a joystick enable button to prevent that; we don't have one wired.
 
-This node therefore holds /cmd_vel_nav at zero until the first
-/way_point has been published, and re-gates to zero if no /way_point
+This node therefore holds /cmd_vel at zero until the first /way_point
+has been published, and re-gates to zero if no /way_point
 has been seen for `waypoint_timeout` seconds (so if the user stops
 sending goals, the robot doesn't keep drifting toward a stale target).
 """
@@ -26,7 +26,7 @@ class TwistStampedToTwist(Node):
     def __init__(self):
         super().__init__('twist_stamped_to_twist')
         self.declare_parameter('in_topic', '/cmd_vel_stamped')
-        self.declare_parameter('out_topic', '/cmd_vel_nav')
+        self.declare_parameter('out_topic', '/cmd_vel')
         self.declare_parameter('waypoint_topic', '/way_point')
         # Seconds since last /way_point before re-gating to zero. Set to
         # 0 or negative to disable re-gating (still requires first goal).
@@ -76,8 +76,10 @@ def main():
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

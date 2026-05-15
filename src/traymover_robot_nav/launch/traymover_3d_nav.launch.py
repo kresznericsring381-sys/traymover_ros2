@@ -1,33 +1,37 @@
-"""Launch: 3D point-cloud navigation (option 14 alternative to traymover_nav).
+"""Launch: simple 3D point-cloud navigation (option 14).
 
 Replaces the Nav2 + 2D PGM path of traymover_nav.launch.py with CMU's
 autonomous_exploration_development_environment local stack:
   * terrain_analysis — builds /terrain_map from FAST_LIO /cloud_registered
     + /Odometry, labelling points by height relative to ground.
-  * local_planner/localPlanner — picks a collision-free motion primitive
-    path toward /way_point given /terrain_map and /registered_scan.
+  * local_planner/localPlanner — picks a local motion primitive path toward
+    /way_point.
   * local_planner/pathFollower — turns the chosen path into TwistStamped
-    on /cmd_vel (in CMU convention).
+    on /cmd_vel_stamped.
 
-Shims we add to fit our chassis + safety chain:
+Shims we add to fit our chassis:
   * goal_pose_to_waypoint.py — RViz "2D Goal Pose" -> /way_point, with
     TF transform into camera_init (CMU's internal world frame).
   * twist_stamped_to_twist.py — pathFollower's TwistStamped ->
-    /cmd_vel_nav (Twist) so the existing collision_monitor still filters
-    to /cmd_vel.
+    /cmd_vel (Twist) for the base serial driver, gated until a goal arrives.
+  * topic remaps — keep CMU's follower path isolated from FAST_LIO/NDT
+    diagnostic paths, while preserving those paths for RViz inspection.
 
 Reuses:
   * lidar_localization.launch.py — FAST_LIO + NDT map->odom correction
     against a prior PCD (so goal coords remain map-consistent).
-  * collision_monitor.launch.py — /cmd_vel_nav -> /cmd_vel safety net.
 
 Frame notes:
   * FAST_LIO /Odometry and /cloud_registered are both in `camera_init`.
     We feed them directly to CMU as /state_estimation and /registered_scan.
     CMU code is frame-agnostic (reads pose values, not header.frame_id),
     so internal consistency is what matters.
-  * Bridge transforms goals from RViz's `map` frame into `camera_init`
-    so /way_point coords match /state_estimation pose coords.
+  * Bridge transforms goals from RViz's `map` frame into
+    `waypoint_target_frame` (default: camera_init) so /way_point coords
+    match /state_estimation pose coords.
+  * CMU publishes local paths in a `vehicle` frame. We attach `vehicle`
+    to base_link for visualization only; pathFollower still consumes the
+    numeric path relative to the pose captured when the path arrived.
 
 Common invocations:
   ros2 launch traymover_robot_nav traymover_3d_nav.launch.py \\
@@ -72,8 +76,6 @@ def generate_launch_description():
         nav_share, 'config', 'terrain_analysis.yaml')
     default_planner_params = os.path.join(
         nav_share, 'config', 'local_planner.yaml')
-    default_collision_params = os.path.join(
-        nav_share, 'config', 'collision_monitor.yaml')
     default_rviz = os.path.join(
         nav_share, 'rviz', 'traymover_3d_nav.rviz')
     pointcloud_launch = os.path.join(
@@ -87,7 +89,10 @@ def generate_launch_description():
     rviz_config = LaunchConfiguration('rviz_config')
     terrain_params = LaunchConfiguration('terrain_params')
     planner_params = LaunchConfiguration('planner_params')
-    target_frame = LaunchConfiguration('target_frame')
+    waypoint_target_frame = LaunchConfiguration('waypoint_target_frame')
+    local_path_topic = LaunchConfiguration('local_path_topic')
+    fastlio_path_topic = LaunchConfiguration('fastlio_path_topic')
+    localization_path_topic = LaunchConfiguration('localization_path_topic')
 
     # 0) Optional hardware bringup
     hw_base = IncludeLaunchDescription(
@@ -115,6 +120,7 @@ def generate_launch_description():
             'nav_cloud_topic': '/point_cloud_nav',
             'scan_topic': '/scan',
             'target_frame': 'base_link',
+            'publish_scan': 'false',
         }.items(),
     )
 
@@ -127,7 +133,26 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'pcd_path': pcd_path,
             'cloud_topic': '/point_cloud_localization',
+            'fastlio_path_topic': fastlio_path_topic,
+            'localization_path_topic': localization_path_topic,
+            # Option 14 relies on FAST_LIO for short-term motion. NDT is only
+            # allowed to make slow global corrections, otherwise repeated-wall
+            # false matches can rotate map->odom with the robot.
+            'max_map_odom_update_translation': '0.30',
+            'max_map_odom_update_rotation': '0.12',
         }.items(),
+    )
+
+    # CMU localPlanner publishes nav_msgs/Path in frame_id="vehicle".
+    # Add a visualization-only frame so RViz can transform /local_planner_path
+    # and /free_paths into the fixed map frame. The planner/follower math does
+    # not depend on this TF.
+    static_base_to_vehicle = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_base_to_vehicle',
+        arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'vehicle'],
+        output='screen',
     )
 
     # 2) CMU stack. Wait until localization lifecycle has activated
@@ -156,6 +181,7 @@ def generate_launch_description():
         remappings=[
             ('/state_estimation', '/odom'),
             ('/registered_scan', '/cloud_registered'),
+            ('/path', local_path_topic),
         ],
     )
     path_follower = Node(
@@ -166,6 +192,7 @@ def generate_launch_description():
         parameters=[planner_params, {'use_sim_time': use_sim_time}],
         remappings=[
             ('/state_estimation', '/odom'),
+            ('/path', local_path_topic),
             ('/cmd_vel', '/cmd_vel_stamped'),
         ],
     )
@@ -177,7 +204,7 @@ def generate_launch_description():
         parameters=[{
             'goal_topic': '/goal_pose',
             'waypoint_topic': '/way_point',
-            'target_frame': target_frame,
+            'target_frame': waypoint_target_frame,
             'use_sim_time': use_sim_time,
         }],
     )
@@ -188,7 +215,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'in_topic': '/cmd_vel_stamped',
-            'out_topic': '/cmd_vel_nav',
+            'out_topic': '/cmd_vel',
             'use_sim_time': use_sim_time,
         }],
     )
@@ -204,17 +231,7 @@ def generate_launch_description():
         ],
     )
 
-    # 3) Collision monitor safety net: /cmd_vel_nav -> /cmd_vel.
-    collision_monitor = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(nav_share, 'launch', 'collision_monitor.launch.py')),
-        launch_arguments={
-            'use_sim_time': use_sim_time,
-            'params_file': default_collision_params,
-        }.items(),
-    )
-
-    # 4) Optional RViz.
+    # 3) Optional RViz.
     rviz = Node(
         package='rviz2',
         executable='rviz2',
@@ -242,14 +259,23 @@ def generate_launch_description():
             'planner_params', default_value=default_planner_params,
             description='YAML overriding localPlanner + pathFollower parameters.'),
         DeclareLaunchArgument(
-            'target_frame', default_value='camera_init',
+            'waypoint_target_frame', default_value='camera_init',
             description='World frame used by CMU stack; RViz goals are '
                         'transformed into this frame before being republished.'),
+        DeclareLaunchArgument(
+            'local_path_topic', default_value='/local_planner_path',
+            description='Isolated CMU localPlanner path consumed by pathFollower.'),
+        DeclareLaunchArgument(
+            'fastlio_path_topic', default_value='/fastlio_path',
+            description='FAST_LIO diagnostic trajectory path shown in RViz.'),
+        DeclareLaunchArgument(
+            'localization_path_topic', default_value='/pcl_path',
+            description='NDT/lidar_localization diagnostic trajectory path shown in RViz.'),
         hw_base,
         hw_lidar,
         pointcloud_pipeline,
         localization,
+        static_base_to_vehicle,
         cmu_stack_delayed,
-        collision_monitor,
         rviz,
     ])

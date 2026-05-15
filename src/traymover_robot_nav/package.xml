@@ -3,7 +3,7 @@
 <package format="3">
   <name>traymover_robot_nav</name>
   <version>0.0.0</version>
-  <description>Traymover airport tray-mover navigation stack: lidar_localization_ros2 for global localization on a prebuilt FAST_LIO PCD map, Nav2 with obstacle-stop (Phase 1) and local avoidance (Phase 2).</description>
+  <description>Traymover airport tray-mover navigation stack: lidar_localization_ros2 on a prebuilt FAST_LIO PCD map, Nav2 point-to-point navigation, and optional 3D local-planner experiments.</description>
   <maintainer email="chenqixian428106@gmail.com">traymover</maintainer>
   <license>BSD</license>
 

@@ -58,6 +58,12 @@ def generate_launch_description():
     urdf_model = LaunchConfiguration('urdf_model')
     use_sim_time = LaunchConfiguration('use_sim_time')
     cloud_topic = LaunchConfiguration('cloud_topic')
+    fastlio_path_topic = LaunchConfiguration('fastlio_path_topic')
+    localization_path_topic = LaunchConfiguration('localization_path_topic')
+    max_map_odom_update_translation = LaunchConfiguration(
+        'max_map_odom_update_translation')
+    max_map_odom_update_rotation = LaunchConfiguration(
+        'max_map_odom_update_rotation')
     # Default PCD matches what's hardcoded in config/localization.yaml.
     # Pass a different path via `pcd_path:=<abs>` to override at runtime.
     default_pcd = find_default_pcd()
@@ -70,7 +76,9 @@ def generate_launch_description():
     #    TF camera_init->body at ~20 Hz. Remapped to /odom so Nav2 and
     #    lidar_localization both read it from a single topic.
     #    pcd_save.pcd_save_en:=false so shutdown does not overwrite the
-    #    staging PCD used by the mapping flow.
+    #    staging PCD used by the mapping flow. publish.map_en:=false because
+    #    navigation only needs odom/TF; publishing /Laser_map keeps appending
+    #    scans into FAST_LIO's pcl_wait_pub and grows memory/bandwidth over time.
     # ------------------------------------------------------------------
     fast_lio = Node(
         package='fast_lio',
@@ -81,10 +89,15 @@ def generate_launch_description():
             {
                 'use_sim_time': use_sim_time,
                 'pcd_save.pcd_save_en': False,
+                'publish.map_en': False,
             },
         ],
         remappings=[
             ('/Odometry', '/odom'),
+            # Default remains /path for option 10. Option 14 remaps this so
+            # FAST_LIO's history path cannot collide with CMU local planner
+            # paths consumed by pathFollower.
+            ('/path', fastlio_path_topic),
         ],
         output='screen',
     )
@@ -125,6 +138,12 @@ def generate_launch_description():
             localization_params,
             {'use_sim_time': use_sim_time},
             {'map_path': LaunchConfiguration('pcd_path')},
+            {
+                'max_map_odom_update_translation': ParameterValue(
+                    max_map_odom_update_translation, value_type=float),
+                'max_map_odom_update_rotation': ParameterValue(
+                    max_map_odom_update_rotation, value_type=float),
+            },
         ],
         remappings=[
             ('/cloud', cloud_topic),
@@ -133,6 +152,9 @@ def generate_launch_description():
             # integrates it between NDT scans. Kept explicit so breaking the
             # remap in FAST_LIO doesn't silently disable motion prediction.
             ('/odom', '/odom'),
+            # Default remains /path for option 10. Option 14 remaps this to a
+            # diagnostic topic so only CMU localPlanner owns the follower path.
+            ('/path', localization_path_topic),
         ],
         # output='both' mirrors stdout/stderr to the session log as well
         # as the terminal — needed to post-mortem NDT converge/fitness/jump
@@ -175,6 +197,18 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'pcd_path', default_value=default_pcd,
             description='Absolute path to the PCD used as prior map.'),
+        DeclareLaunchArgument(
+            'fastlio_path_topic', default_value='/path',
+            description='FAST_LIO diagnostic path topic; option 14 remaps it.'),
+        DeclareLaunchArgument(
+            'localization_path_topic', default_value='/path',
+            description='lidar_localization diagnostic path topic; option 14 remaps it.'),
+        DeclareLaunchArgument(
+            'max_map_odom_update_translation', default_value='-1.0',
+            description='Reject NDT map->odom translation corrections above this many meters; <=0 disables.'),
+        DeclareLaunchArgument(
+            'max_map_odom_update_rotation', default_value='-1.0',
+            description='Reject NDT map->odom yaw corrections above this many radians; <=0 disables.'),
         rsp,
         fast_lio,
         static_odom_to_cam_init,
