@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import copy
 from pathlib import Path
 import subprocess
 
@@ -33,6 +34,10 @@ UniqueKeyLoader.add_constructor(
 def load_unique_yaml(path):
     with path.open('r', encoding='utf-8') as f:
         return yaml.load(f, Loader=UniqueKeyLoader)
+
+
+def assert_close(actual, expected, tolerance=1.0e-9):
+    assert abs(actual - expected) <= tolerance
 
 
 def test_nav2_option10_has_no_dynamic_obstacle_stop_chain():
@@ -189,6 +194,85 @@ def test_nav2_tolerates_short_tf_jitter_without_recoveries():
     assert progress_checker['required_movement_angle'] >= 0.15
     assert local_costmap['transform_tolerance'] >= 0.6
     assert global_costmap['transform_tolerance'] >= 0.6
+
+
+def test_option15_fast_nav_configs_only_change_requested_speed_values():
+    slow = load_unique_yaml(PKG_ROOT / 'config' / 'nav2_params.yaml')
+    linear_2x = load_unique_yaml(PKG_ROOT / 'config' / 'nav2_params_linear_2x.yaml')
+    linear_2_5x_turn_2x = load_unique_yaml(
+        PKG_ROOT / 'config' / 'nav2_params_linear_2_5x_turn_2x.yaml'
+    )
+
+    speed_keys = (
+        'desired_linear_vel',
+        'min_approach_linear_velocity',
+        'regulated_linear_scaling_min_speed',
+        'rotate_to_heading_angular_vel',
+    )
+
+    def follow_path(params):
+        return params['controller_server']['ros__parameters']['FollowPath']
+
+    def without_speed_values(params):
+        clone = copy.deepcopy(params)
+        clone_follow_path = follow_path(clone)
+        for key in speed_keys:
+            clone_follow_path[key] = '<speed-mode-value>'
+        return clone
+
+    assert without_speed_values(linear_2x) == without_speed_values(slow)
+    assert without_speed_values(linear_2_5x_turn_2x) == without_speed_values(slow)
+
+    slow_follow_path = follow_path(slow)
+    linear_2x_follow_path = follow_path(linear_2x)
+    linear_2_5x_turn_2x_follow_path = follow_path(linear_2_5x_turn_2x)
+
+    assert_close(
+        linear_2x_follow_path['desired_linear_vel'],
+        slow_follow_path['desired_linear_vel'] * 2.0,
+    )
+    assert_close(
+        linear_2x_follow_path['min_approach_linear_velocity'],
+        slow_follow_path['min_approach_linear_velocity'] * 2.0,
+    )
+    assert_close(
+        linear_2x_follow_path['regulated_linear_scaling_min_speed'],
+        slow_follow_path['regulated_linear_scaling_min_speed'] * 2.0,
+    )
+    assert_close(
+        linear_2x_follow_path['rotate_to_heading_angular_vel'],
+        slow_follow_path['rotate_to_heading_angular_vel'],
+    )
+
+    assert_close(
+        linear_2_5x_turn_2x_follow_path['desired_linear_vel'],
+        slow_follow_path['desired_linear_vel'] * 2.5,
+    )
+    assert_close(
+        linear_2_5x_turn_2x_follow_path['min_approach_linear_velocity'],
+        slow_follow_path['min_approach_linear_velocity'] * 2.5,
+    )
+    assert_close(
+        linear_2_5x_turn_2x_follow_path['regulated_linear_scaling_min_speed'],
+        slow_follow_path['regulated_linear_scaling_min_speed'] * 2.5,
+    )
+    assert_close(
+        linear_2_5x_turn_2x_follow_path['rotate_to_heading_angular_vel'],
+        slow_follow_path['rotate_to_heading_angular_vel'] * 2.0,
+    )
+
+
+def test_option15_launcher_uses_dedicated_speed_configs_without_changing_option10_case():
+    launcher_text = (WORKSPACE_ROOT / 'scripts' / 'traymover.sh').read_text(
+        encoding='utf-8'
+    )
+
+    assert '10) action_start_nav ;;' in launcher_text
+    assert '15) action_start_nav_speed_modes ;;' in launcher_text
+    assert '15) Start navigation with speed mode' in launcher_text
+    assert 'nav2_params_linear_2x.yaml' in launcher_text
+    assert 'nav2_params_linear_2_5x_turn_2x.yaml' in launcher_text
+    assert "params_file:='${nav_params_file}'" in launcher_text
 
 
 def test_option10_progress_checker_plugin_exports_yaw_progress():

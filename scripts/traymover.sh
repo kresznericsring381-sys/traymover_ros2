@@ -528,6 +528,160 @@ action_start_nav() {
 EOF
 }
 
+action_start_nav_speed_modes() {
+    # Option 15 is an additive variant of option 10: same map selection,
+    # runtime 2D map generation, hardware bringup, localization, Nav2 launch,
+    # and RViz prompt; only the Nav2 params_file changes for speed modes 1/2.
+    local speed_mode speed_label nav_params_file nav_params_arg
+    cat <<EOF
+[traymover] Navigation speed modes:
+  0) Default slow navigation, same params as option 10
+  1) Linear speed 2.0x, in-place turning speed unchanged
+  2) Linear speed 2.5x, in-place turning speed 2.0x
+EOF
+    read -r -p "Select speed mode [default: 0]: " speed_mode
+    speed_mode="${speed_mode:-0}"
+    nav_params_file=""
+    nav_params_arg=""
+    case "${speed_mode}" in
+        0)
+            speed_label="mode 0 slow/default"
+            ;;
+        1)
+            speed_label="mode 1 linear 2.0x"
+            nav_params_file="${NAV_PKG_DIR}/config/nav2_params_linear_2x.yaml"
+            ;;
+        2)
+            speed_label="mode 2 linear 2.5x + turn 2.0x"
+            nav_params_file="${NAV_PKG_DIR}/config/nav2_params_linear_2_5x_turn_2x.yaml"
+            ;;
+        *)
+            echo "[traymover] Invalid speed mode: ${speed_mode}"
+            return 1
+            ;;
+    esac
+
+    if [ -n "${nav_params_file}" ]; then
+        if [ ! -f "${nav_params_file}" ]; then
+            echo "[traymover] Missing Nav2 params file: ${nav_params_file}"
+            return 1
+        fi
+        nav_params_arg="params_file:='${nav_params_file}'"
+    fi
+    echo "[traymover] Selected navigation speed: ${speed_label}"
+
+    if [ ! -d "${FASTLIO_PCD_DIR}" ]; then
+        echo "[traymover] FAST-LIO PCD directory missing: ${FASTLIO_PCD_DIR}"
+        echo "[traymover] Record a map first (options 6 + 7)."
+        return 1
+    fi
+
+    local -a pcds=()
+    while IFS= read -r -d '' f; do
+        pcds+=("$f")
+    done < <(find "${FASTLIO_PCD_DIR}" -maxdepth 1 -name '*.pcd' -type f -print0 2>/dev/null \
+             | xargs -0 -I{} stat --format='%Y %n' {} 2>/dev/null \
+             | sort -rn | cut -d' ' -f2- | tr '\n' '\0')
+
+    if [ ${#pcds[@]} -eq 0 ]; then
+        echo "[traymover] No .pcd files in ${FASTLIO_PCD_DIR}. Save a map first (option 7)."
+        return 1
+    fi
+
+    echo "Available PCD maps in ${FASTLIO_PCD_DIR} (newest first):"
+    local i size
+    for i in "${!pcds[@]}"; do
+        size="$(du -h "${pcds[i]}" 2>/dev/null | awk '{print $1}')"
+        printf "  [%d] %s  (%s)\n" "$((i+1))" "$(basename "${pcds[i]}")" "${size:-?}"
+    done
+
+    local pick pcd_path
+    read -r -p "Select PCD number [default: 1 = newest]: " pick
+    pick="${pick:-1}"
+    if ! [[ "${pick}" =~ ^[0-9]+$ ]] || [ "${pick}" -lt 1 ] || [ "${pick}" -gt "${#pcds[@]}" ]; then
+        echo "[traymover] Invalid selection: ${pick}"
+        return 1
+    fi
+    pcd_path="${pcds[$((pick-1))]}"
+    echo "[traymover] Selected: ${pcd_path}"
+
+    mkdir -p "${NAV_RUNTIME_DIR}"
+    local runtime_name runtime_prefix runtime_map_yaml
+    runtime_name="$(basename "${pcd_path}" .pcd)"
+    runtime_prefix="${NAV_RUNTIME_DIR}/${runtime_name}_2d"
+    runtime_map_yaml="${runtime_prefix}.yaml"
+
+    set +u
+    mkdir -p "${ROS_LOG_DIR_DEFAULT}"
+    export ROS_LOG_DIR="${ROS_LOG_DIR_DEFAULT}"
+    # shellcheck disable=SC1090
+    source "${ROS_DISTRO_SETUP}"
+    if [ -f "${WS_SETUP}" ]; then
+        # shellcheck disable=SC1090
+        source "${WS_SETUP}"
+    fi
+    set -u
+
+    echo "[traymover] Generating runtime 2D nav map from selected PCD ..."
+    if ! python3 "${NAV_SCRIPTS_DIR}/pcd2pgm.py" \
+            --pcd "${pcd_path}" \
+            --out "${runtime_prefix}" \
+            --z-min "${NAV_PGM_Z_MIN}" \
+            --z-max "${NAV_PGM_Z_MAX}" \
+            --min-points "${NAV_PGM_MIN_POINTS}" \
+            --dilate "${NAV_PGM_DILATE}" \
+            --min-region-cells "${NAV_PGM_MIN_REGION_CELLS}"; then
+        echo "[traymover] pcd2pgm failed. Aborting nav startup."
+        return 1
+    fi
+    if [ ! -f "${runtime_map_yaml}" ]; then
+        echo "[traymover] Expected runtime map YAML missing: ${runtime_map_yaml}"
+        return 1
+    fi
+    echo "[traymover] Runtime map YAML: ${runtime_map_yaml}"
+    echo "[traymover] Runtime map params: z=[${NAV_PGM_Z_MIN}, ${NAV_PGM_Z_MAX}] m above floor, min_points=${NAV_PGM_MIN_POINTS}, dilate=${NAV_PGM_DILATE}, min_region_cells=${NAV_PGM_MIN_REGION_CELLS}"
+
+    local rviz_opt rviz_arg
+    read -r -p "Launch RViz? [Y/n]: " rviz_opt
+    rviz_opt="${rviz_opt:-Y}"
+    if [[ "${rviz_opt}" =~ ^[Yy] ]]; then
+        rviz_arg="launch_rviz:=true"
+    else
+        rviz_arg="launch_rviz:=false"
+    fi
+
+    echo "[traymover] Starting chassis + IMU (base_serial) ..."
+    spawn_in_terminal "traymover: chassis_serial" \
+        "ros2 launch turn_on_traymover_robot base_serial.launch.py odom_source_mode:=none"
+
+    echo "[traymover] Starting LiDAR driver (Nav2 is not using scan-based avoidance) ..."
+    spawn_in_terminal "traymover: lidar" \
+        "ros2 launch turn_on_traymover_robot traymover_lidar.launch.py enable_scan_bridge:=false"
+
+    sleep 6
+
+    local nav_cmd
+    nav_cmd="ros2 launch traymover_robot_nav traymover_nav.launch.py ${rviz_arg} pcd_path:='${pcd_path}' map:='${runtime_map_yaml}'"
+    if [ -n "${nav_params_arg}" ]; then
+        nav_cmd="${nav_cmd} ${nav_params_arg}"
+    fi
+
+    echo "[traymover] Starting nav stack (${speed_label}) with pcd_path=${pcd_path} map=${runtime_map_yaml} ..."
+    spawn_in_terminal "traymover: nav_stack ${speed_mode}" "${nav_cmd}"
+
+    cat <<EOF
+[traymover] Nav stack starting with ${speed_label}. Next steps once lifecycle activates (~10-20 s):
+  1) In RViz click '2D Pose Estimate' and drag on the map at the robot's current spot.
+  2) Wait for RobotModel to snap to pose and /pcl_pose to converge.
+  3) Click '2D Goal Pose' to send a navigation goal.
+  Health checks:
+    ros2 topic info /odom -v
+    ./scripts/check_localization.sh
+    ros2 action list | grep navigate_to_pose
+    ros2 topic echo --once /cmd_vel
+EOF
+}
+
 action_start_3d_nav() {
     # Alternative to option 10 that skips the 2D PGM projection entirely
     # and drives from the 3D point cloud directly using CMU's
@@ -834,6 +988,7 @@ print_menu() {
  12) Clean FAST-LIO PCD  (SOR + optional DBSCAN; removes dynamic-object ghosts)
  13) Intersect multiple FAST-LIO PCDs  (majority vote across sessions)
  14) Start 3D point-cloud navigation  (FAST_LIO + NDT + CMU local_planner + RViz; no 2D PGM)
+ 15) Start navigation with speed mode  (option 10 flow + selectable Nav2 speed)
   q) Quit
 ==============================
 EOF
@@ -864,6 +1019,7 @@ main() {
             12) action_clean_pcd ;;
             13) action_intersect_pcds ;;
             14) action_start_3d_nav ;;
+            15) action_start_nav_speed_modes ;;
             q|Q|quit|exit) echo "Bye."; exit 0 ;;
             "") ;;
             *) echo "Unknown option: ${choice}" ;;
