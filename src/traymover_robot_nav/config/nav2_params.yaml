@@ -5,6 +5,7 @@
 #   - FAST_LIO /odom is the only navigation odometry source
 #   - local costmap runs in odom for smooth control; global costmap stays in map
 #   - dynamic obstacle / stop logic removed for simple point-to-point testing
+#   - RPP rotate-to-heading enabled for in-place heading correction; reversing remains disabled
 #   - velocity_smoother removed (reintroduce later if needed)
 
 bt_navigator:
@@ -45,19 +46,20 @@ controller_server:
     controller_plugins: ["FollowPath"]
 
     progress_checker:
-      plugin: "nav2_controller::SimpleProgressChecker"
+      plugin: "traymover_robot_nav::YawProgressChecker"
       required_movement_radius: 0.30
+      required_movement_angle: 0.20
       movement_time_allowance: 8.0
 
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.20
-      yaw_goal_tolerance: 0.50
+      yaw_goal_tolerance: 0.30
 
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.16
+      desired_linear_vel: 0.14
       min_approach_linear_velocity: 0.06
       approach_velocity_scaling_dist: 0.6
       # Lookahead: how far ahead along the path RPP aims. Smaller = tighter
@@ -65,11 +67,14 @@ controller_server:
       use_velocity_scaled_lookahead_dist: true
       # Longer lookahead reduces commanded curvature, lowering yaw rate without
       # adding another cmd_vel layer while keeping the existing direct chain.
-      lookahead_dist: 1.10
-      min_lookahead_dist: 0.90
-      max_lookahead_dist: 2.20
-      lookahead_time: 2.20
-      use_rotate_to_heading: false
+      lookahead_dist: 1.40
+      min_lookahead_dist: 1.10
+      max_lookahead_dist: 2.60
+      lookahead_time: 2.80
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.35
+      rotate_to_heading_angular_vel: 0.45
+      max_angular_accel: 0.8
       allow_reversing: false
       # Slow down on tight curves and near goal. Dynamic obstacle handling is
       # intentionally disabled for the current simple navigation pass.
@@ -77,8 +82,8 @@ controller_server:
       # Slow more aggressively on curves. RPP has no hard angular-velocity cap
       # in follow mode, so turn-speed limiting is done through lookahead and
       # curvature-based linear speed regulation.
-      regulated_linear_scaling_min_radius: 2.50
-      regulated_linear_scaling_min_speed: 0.04
+      regulated_linear_scaling_min_radius: 3.20
+      regulated_linear_scaling_min_speed: 0.035
       use_cost_regulated_linear_velocity_scaling: false
       use_collision_detection: false
       transform_tolerance: 0.6

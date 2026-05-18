@@ -135,8 +135,8 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'pcd_path': pcd_path,
             'cloud_topic': '/point_cloud_localization',
-            'max_map_odom_update_translation': '0.30',
-            'max_map_odom_update_rotation': '0.12',
+            'max_map_odom_update_translation': '0.50',
+            'max_map_odom_update_rotation': '0.25',
         }.items(),
     )
 

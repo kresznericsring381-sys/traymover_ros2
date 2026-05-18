@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import subprocess
 
 import yaml
 
 
 PKG_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PKG_ROOT.parent
+WORKSPACE_ROOT = SRC_ROOT.parent
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
@@ -35,7 +37,9 @@ def load_unique_yaml(path):
 
 def test_nav2_option10_has_no_dynamic_obstacle_stop_chain():
     params = load_unique_yaml(PKG_ROOT / 'config' / 'nav2_params.yaml')
-    follow_path = params['controller_server']['ros__parameters']['FollowPath']
+    controller_params = params['controller_server']['ros__parameters']
+    follow_path = controller_params['FollowPath']
+    progress_checker = controller_params['progress_checker']
     bt_params = params['bt_navigator']['ros__parameters']
     local_costmap = params['local_costmap']['local_costmap']['ros__parameters']
     global_costmap = params['global_costmap']['global_costmap']['ros__parameters']
@@ -44,7 +48,15 @@ def test_nav2_option10_has_no_dynamic_obstacle_stop_chain():
         'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController'
     )
     assert follow_path['use_collision_detection'] is False
-    assert follow_path['use_rotate_to_heading'] is False
+    assert follow_path['use_rotate_to_heading'] is True
+    assert follow_path['allow_reversing'] is False
+    assert 0.0 < follow_path['rotate_to_heading_min_angle'] <= 0.35
+    assert 0.0 < follow_path['rotate_to_heading_angular_vel'] <= 0.45
+    assert 0.0 < follow_path['max_angular_accel'] <= 0.8
+    assert progress_checker['plugin'] == 'traymover_robot_nav::YawProgressChecker'
+    assert progress_checker['required_movement_radius'] == 0.30
+    assert 0.15 <= progress_checker['required_movement_angle'] <= 0.25
+    assert progress_checker['movement_time_allowance'] == 8.0
     assert 'obstacle_layer' not in local_costmap['plugins']
     assert 'obstacle_layer' not in global_costmap['plugins']
     assert 'behavior_server' not in params
@@ -64,10 +76,20 @@ def test_option10_launch_does_not_route_through_collision_monitor():
     assert '/fastlio_path' not in launch_text
     assert '/pcl_path' not in launch_text
     assert "'publish_scan': 'false'" in launch_text
-    assert "'max_map_odom_update_translation': '0.30'" in launch_text
-    assert "'max_map_odom_update_rotation': '0.12'" in launch_text
+    assert "'max_map_odom_update_translation': '0.50'" in launch_text
+    assert "'max_map_odom_update_rotation': '0.25'" in launch_text
     assert "'behavior_server'" not in launch_text
     assert "'waypoint_follower'" not in launch_text
+
+
+def test_lidar_localization_does_not_claim_nav2_map_topic_as_pointcloud():
+    localization_source = (
+        SRC_ROOT / 'traymover_robot_slam' / 'lidar_localization_ros2' /
+        'src' / 'lidar_localization_component.cpp'
+    ).read_text(encoding='utf-8')
+
+    assert '"ndt_map"' in localization_source
+    assert 'create_subscription<sensor_msgs::msg::PointCloud2>(\n    "map"' not in localization_source
 
 
 def test_option14_isolates_cmu_path_from_localization_diagnostics():
@@ -146,18 +168,64 @@ def test_nav2_tolerates_short_tf_jitter_without_recoveries():
     bt_params = params['bt_navigator']['ros__parameters']
     controller_params = params['controller_server']['ros__parameters']
     follow_path = controller_params['FollowPath']
+    progress_checker = controller_params['progress_checker']
     local_costmap = params['local_costmap']['local_costmap']['ros__parameters']
     global_costmap = params['global_costmap']['global_costmap']['ros__parameters']
 
     assert bt_params['transform_tolerance'] >= 0.6
     assert controller_params['failure_tolerance'] >= 2.0
-    assert follow_path['lookahead_dist'] >= 1.0
-    assert follow_path['min_lookahead_dist'] >= 0.8
-    assert follow_path['regulated_linear_scaling_min_radius'] >= 2.0
-    assert follow_path['regulated_linear_scaling_min_speed'] <= 0.05
+    assert controller_params['general_goal_checker']['yaw_goal_tolerance'] <= 0.30
+    assert follow_path['desired_linear_vel'] <= 0.14
+    assert follow_path['use_rotate_to_heading'] is True
+    assert follow_path['allow_reversing'] is False
+    assert follow_path['lookahead_dist'] >= 1.3
+    assert follow_path['min_lookahead_dist'] >= 1.0
+    assert follow_path['max_lookahead_dist'] >= 2.5
+    assert follow_path['lookahead_time'] >= 2.5
+    assert follow_path['regulated_linear_scaling_min_radius'] >= 3.0
+    assert follow_path['regulated_linear_scaling_min_speed'] <= 0.04
     assert follow_path['transform_tolerance'] >= 0.6
+    assert progress_checker['plugin'] == 'traymover_robot_nav::YawProgressChecker'
+    assert progress_checker['required_movement_angle'] >= 0.15
     assert local_costmap['transform_tolerance'] >= 0.6
     assert global_costmap['transform_tolerance'] >= 0.6
+
+
+def test_option10_progress_checker_plugin_exports_yaw_progress():
+    plugin_text = (PKG_ROOT / 'plugins.xml').read_text(encoding='utf-8')
+    source_text = (PKG_ROOT / 'src' / 'yaw_progress_checker.cpp').read_text(
+        encoding='utf-8'
+    )
+
+    assert 'traymover_robot_nav::YawProgressChecker' in plugin_text
+    assert 'base_class_type="nav2_core::ProgressChecker"' in plugin_text
+    assert 'required_movement_angle' in source_text
+    assert 'rotated_enough(pose)' in source_text
+    assert 'moved_enough(pose)' in source_text
+    assert 'tf2::getYaw' not in source_text
+
+
+def test_option10_progress_checker_plugin_has_no_runtime_undefined_symbols():
+    plugin_lib = (
+        WORKSPACE_ROOT / 'build' / 'traymover_robot_nav' /
+        'libtraymover_robot_nav_progress_checker.so'
+    )
+
+    assert plugin_lib.exists(), (
+        'build traymover_robot_nav before running this runtime symbol check'
+    )
+
+    result = subprocess.run(
+        ['ldd', '-r', str(plugin_lib)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0, output
+    assert 'undefined symbol' not in output
+    assert 'not found' not in output
 
 
 def test_rviz_shows_map_rainbow_and_ndt_alignment_overlay():

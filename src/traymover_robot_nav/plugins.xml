@@ -1,0 +1,10 @@
+<library path="traymover_robot_nav_progress_checker">
+  <class
+    name="traymover_robot_nav::YawProgressChecker"
+    type="traymover_robot_nav::YawProgressChecker"
+    base_class_type="nav2_core::ProgressChecker">
+    <description>
+      Progress checker that accepts either x/y translation or yaw rotation as movement.
+    </description>
+  </class>
+</library>
