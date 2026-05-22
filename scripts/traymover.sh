@@ -16,6 +16,7 @@ FASTLIO_PCD_DIR="${WORKSPACE_DIR}/src/traymover_robot_slam/FAST_LIO/PCD"
 FASTLIO_ROSBAG_DIR="${WORKSPACE_DIR}/src/traymover_robot_slam/FAST_LIO/rosbag"
 FASTLIO_POS_LOG="${WORKSPACE_DIR}/src/traymover_robot_slam/FAST_LIO/Log/pos_log.txt"
 FASTLIO_FILTER_STAGING="${FASTLIO_PCD_DIR}/traymover_filtered.pcd"
+RECORD_RVIZ_CONFIG="${SCRIPT_DIR}/rviz/traymover_record_rgb_pointcloud.rviz"
 NAV_PKG_DIR="${WORKSPACE_DIR}/src/traymover_robot_nav"
 NAV_MAP_DIR="${NAV_PKG_DIR}/map"
 NAV_SCRIPTS_DIR="${NAV_PKG_DIR}/scripts"
@@ -25,6 +26,12 @@ NAV_PGM_Z_MAX="2.20"
 NAV_PGM_MIN_POINTS="1"
 NAV_PGM_DILATE="2"
 NAV_PGM_MIN_REGION_CELLS="2"
+
+REALSENSE_LAUNCH_CMD="ros2 launch realsense2_camera rs_launch.py enable_color:=true enable_depth:=false align_depth.enable:=false enable_sync:=true pointcloud.enable:=false"
+REALSENSE_ROSBAG_TOPICS=(
+    '/camera/camera/color/image_raw'
+    '/camera/camera/color/camera_info'
+)
 
 # ---- terminal spawning ------------------------------------------------------
 # Pick whichever terminal emulator is installed. gnome-terminal on Jetson Orin
@@ -87,6 +94,7 @@ KILL_PATTERNS=(
     'ros2 launch traymover_robot_nav traymover_3d_nav'
     'ros2 launch lslidar_driver'
     'ros2 launch fast_lio'
+    'ros2 launch realsense2_camera'
     'ros2 bag record'
     'ros2 bag play'
     'ros2 run traymover_robot_keyboard'
@@ -97,6 +105,8 @@ KILL_PATTERNS=(
     'sync_slam_toolbox_node'
     'lslidar_driver_node'
     'fastlio_mapping'
+    'realsense2_camera_node'
+    'realsense2_camera_container'
     'fastlio_online_map_filter'
     'pointcloud_to_laserscan'
     'pointcloud_nav_preprocessor'
@@ -328,17 +338,20 @@ action_replay_fastlio_bag() {
 }
 
 action_record_fastlio_bag() {
-    # 录制 FAST-LIO 离线建图所需的 topic:LiDAR 点云 + IMU + TF。
-    # 传感器拓扑与 action_start_fastlio 对齐,保证 bag 可以直接 replay 给 fast_lio。
+    # 录制 FAST-LIO 离线建图所需的 topic:LiDAR 点云 + IMU + TF,
+    # 并同步录制 Intel RealSense RGB-D 数据供后处理/标注/数据集使用。
+    # FAST-LIO replay 只依赖 /point_cloud_raw + /imu/data_raw；相机 topic
+    # 不进入 FAST-LIO 本体,但保存在同一个 bag 里方便按时间对齐。
     # 启动 rosbag record,0 选项的 pkill -TERM 会让它干净地 flush metadata 再退出。
     mkdir -p "${FASTLIO_ROSBAG_DIR}"
     local ts bag_path
     ts="$(date +%Y%m%d_%H%M%S)"
     bag_path="${FASTLIO_ROSBAG_DIR}/traymover_${ts}"
+    local bag_topics="/point_cloud_raw /imu/data_raw /tf_static /tf ${REALSENSE_ROSBAG_TOPICS[*]}"
 
-    echo "[traymover] Starting FAST-LIO sensors + rosbag recording."
+    echo "[traymover] Starting FAST-LIO sensors + RealSense + rosbag recording."
     echo "[traymover]   Bag path : ${bag_path}"
-    echo "[traymover]   Topics   : /point_cloud_raw /imu/data_raw /tf_static /tf"
+    echo "[traymover]   Topics   : ${bag_topics}"
     echo "[traymover]   To drive : select option 2 (keyboard) in another pass."
     echo "[traymover]   To stop  : select option 0; bag metadata will be finalized."
 
@@ -353,10 +366,14 @@ action_record_fastlio_bag() {
     # post-hoc filtering.
     spawn_in_terminal "traymover: lidar" \
         "ros2 launch turn_on_traymover_robot traymover_lidar.launch.py"
+    spawn_in_terminal "traymover: realsense" \
+        "${REALSENSE_LAUNCH_CMD}"
     # Let sensors stabilize so the bag starts with valid data.
-    sleep 5
+    sleep 7
+    spawn_in_terminal "traymover: record_view" \
+        "rviz2 -d '${RECORD_RVIZ_CONFIG}'"
     spawn_in_terminal "traymover: rosbag" \
-        "ros2 bag record -o '${bag_path}' /point_cloud_raw /imu/data_raw /tf_static /tf"
+        "ros2 bag record -o '${bag_path}' ${bag_topics}"
 }
 
 action_show_battery() {
@@ -981,7 +998,7 @@ print_menu() {
   5) Show battery (requires chassis running)
   6) Start FAST-LIO (LiDAR-IMU odometry + RViz; no STM32 wheel odom)
   7) Save filtered FAST-LIO PCD map (requires option 6 or 9 running)
-  8) Record FAST-LIO rosbag (sensors + bag; 0 stops and saves)
+  8) Record FAST-LIO + RealSense rosbag (sensors + bag; 0 stops and saves)
   9) Replay FAST-LIO rosbag offline (bag + fast_lio with sim_time)
  10) Start navigation (pick PCD -> regen 2D map -> chassis + lidar + Nav2 + RViz)
  11) Start teleop-only  (chassis serial + keyboard; no lidar / IMU / EKF)
