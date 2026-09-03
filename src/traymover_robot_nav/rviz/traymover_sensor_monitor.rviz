@@ -1,0 +1,42 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: base_link
+    Background Color: 48; 48; 48
+  Displays:
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Camera Image
+      Topic:
+        Depth: 2
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /camera/camera/color/image_raw
+      Transport Hint: raw
+      Queue Size: 2
+      Normalize Range: true
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Raw LiDAR
+      Topic:
+        Value: /point_cloud_raw
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: Intensity
+      Use Fixed Frame: true
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 10
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0

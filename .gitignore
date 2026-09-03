@@ -1,23 +1,37 @@
-# ROS2 build artifacts
+# ROS 2 / colcon build artifacts
 build/
 install/
 log/
 
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*.so
+
+# Python virtual environments
+.venv/
+venv/
+env/
 
 # IDE
 .vscode/
 .idea/
 
-# Claude Code local settings
-.claude/
+# OS
+.DS_Store
+Thumbs.db
 
-# Reference (symlinked, not part of this repo)
-reference/autoware
-reference/autoware_data
-reference/autoware_map
-reference/wheeltec_ros2
-.omx/
+# ROS logs / runtime files
+*.log
+
+# Generated maps / point clouds / bags
+*.pcd
+*.pgm
+*.db3
+*.bag
+*.mcap
+
+# Temporary files
+tmp/
+temp/
+*.tmp

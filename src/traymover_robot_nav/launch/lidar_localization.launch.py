@@ -60,6 +60,7 @@ def generate_launch_description():
     cloud_topic = LaunchConfiguration('cloud_topic')
     fastlio_path_topic = LaunchConfiguration('fastlio_path_topic')
     localization_path_topic = LaunchConfiguration('localization_path_topic')
+    enable_debug = LaunchConfiguration('enable_debug')
     max_map_odom_update_translation = LaunchConfiguration(
         'max_map_odom_update_translation')
     max_map_odom_update_rotation = LaunchConfiguration(
@@ -137,6 +138,7 @@ def generate_launch_description():
         parameters=[
             localization_params,
             {'use_sim_time': use_sim_time},
+            {'enable_debug': enable_debug},
             {'map_path': LaunchConfiguration('pcd_path')},
             {
                 'max_map_odom_update_translation': ParameterValue(
@@ -189,6 +191,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument(
+            'enable_debug', default_value='true',
+            description='Print NDT convergence, fitness, and transformation diagnostics.'),
         DeclareLaunchArgument('localization_params', default_value=default_params),
         DeclareLaunchArgument('urdf_model', default_value=default_urdf),
         DeclareLaunchArgument(
