@@ -1,0 +1,60 @@
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        point_filter_num: 1
+        max_iteration: 3
+        filter_size_surf: 0.4
+        filter_size_map: 0.4
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: true
+        map_file_path: "/home/wheeltec/traymover_ros2/src/traymover_robot_slam/FAST_LIO/PCD/traymover_fastlio.pcd"
+
+        common:
+            lid_topic: "/point_cloud_raw"
+            imu_topic: "/imu/data_raw"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            # LSLiDAR CX32 publishes PointCloud2 fields x/y/z/intensity/ring/time.
+            # FAST-LIO enum 2 (VELO16 handler) consumes ring + per-point time;
+            # enum 4 is MID360 and expects Livox tag/line fields.
+            lidar_type: 2
+            scan_line: 32
+            scan_rate: 10
+            # µ±Ç° LSLiDAR Çý¶¯µÄ point.time ÊÇÏà¶ÔÃë
+            timestamp_unit: 0
+            blind: 0.15
+
+        mapping:
+            # ÏÈÊ¹ÓÃ LVI-SAM ¸ø³öµÄÔëÉù×÷Îª³õÊ¼Öµ
+            acc_cov: 0.0059215155351791055
+            gyr_cov: 0.0015059072284923697
+            b_acc_cov: 0.0001337937864030618
+            b_gyr_cov: 0.0000434308552835512
+
+            fov_degree: 360.0
+            det_range: 200.0
+
+            # Íâ²ÎÒÑÖª£¬²»ÆôÓÃÔÚÏß¹À¼Æ
+            extrinsic_est_en: false
+
+            # LiDAR pose in IMU/body frame
+            extrinsic_T: [0.435, 0.0, 1.485]
+            extrinsic_R: [
+                1.0, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+                0.0, 0.0, 1.0
+            ]
+
+        publish:
+            path_en: true
+            effect_map_en: false
+            map_en: false
+            scan_publish_en: true
+            dense_publish_en: true
+            scan_bodyframe_pub_en: true
+
+        pcd_save:
+            pcd_save_en: false
+            interval: -1

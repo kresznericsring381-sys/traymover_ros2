@@ -105,6 +105,24 @@ def test_option10_offline_replay_does_not_resolve_hardware_bringup_package():
     )
 
 
+def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
+    replay_script = (WORKSPACE_ROOT / 'scripts' / 'test_nav_replay.sh').read_text(
+        encoding='utf-8'
+    )
+    diagnostics_script = (WORKSPACE_ROOT / 'scripts' / 'ndt_diagnostics.py').read_text(
+        encoding='utf-8'
+    )
+
+    assert 'TRAYMOVER_REPLAY_LOG_ROOT' in replay_script
+    assert 'ROS_LOG_DIR="${RUN_DIR}/ros"' in replay_script
+    assert 'start_process ndt_diagnostics' in replay_script
+    assert '--cloud-topic /point_cloud_localization' in replay_script
+    assert 'ndt_events.log' in diagnostics_script
+    assert 'ndt_metrics.csv' in diagnostics_script
+    assert 'ndt_rosout.log' in diagnostics_script
+    assert "'/lidar_localization/get_state'" in diagnostics_script
+
+
 def test_lidar_localization_does_not_claim_nav2_map_topic_as_pointcloud():
     localization_source = (
         SRC_ROOT / 'traymover_robot_slam' / 'lidar_localization_ros2' /
@@ -413,4 +431,3 @@ def test_initialpose_is_only_ndt_guess_until_valid_alignment():
     assert source.index('NDT map¡úodom jump') < source.index(
         'ndt_aligned_scan_pub_->publish(aligned_scan_msg);'
     )
-

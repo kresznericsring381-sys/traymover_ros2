@@ -14,11 +14,14 @@ ROS_SETUP="/opt/ros/humble/setup.bash"
 WS_SETUP="${WORKSPACE_DIR}/install/setup.bash"
 PCD2PGM="${WORKSPACE_DIR}/src/traymover_robot_nav/scripts/pcd2pgm.py"
 MONITOR_RVIZ="${WORKSPACE_DIR}/src/traymover_robot_nav/rviz/traymover_sensor_monitor.rviz"
-RUNTIME_DIR="/tmp/traymover_nav_runtime"
+NDT_DIAGNOSTICS="${WORKSPACE_DIR}/scripts/ndt_diagnostics.py"
+RUNTIME_DIR="${TRAYMOVER_RUNTIME_DIR:-/tmp/traymover_nav_runtime}"
+RUN_ROOT="${TRAYMOVER_REPLAY_LOG_ROOT:-${HOME}/.ros/traymover_nav_replay}"
 
 usage() {
     echo "Usage: $0 [--mode static|continuous] <map.pcd> <bag_dir> [start_offset_sec]"
     echo "After startup, type: play | once | pause | resume | stop | restart | status | quit"
+    echo "Logs: \$TRAYMOVER_REPLAY_LOG_ROOT/<run-id> (default: ~/.ros/traymover_nav_replay)"
 }
 
 MODE="continuous"
@@ -48,6 +51,16 @@ START_OFFSET="${3:-0}"
 [[ -f "${WS_SETUP}" ]] || { echo "Workspace is not built: ${WS_SETUP}" >&2; exit 1; }
 [[ -f "${PCD2PGM}" ]] || { echo "PCD conversion script not found: ${PCD2PGM}" >&2; exit 1; }
 [[ -f "${MONITOR_RVIZ}" ]] || { echo "Sensor monitor RViz config not found: ${MONITOR_RVIZ}" >&2; exit 1; }
+[[ -f "${NDT_DIAGNOSTICS}" ]] || { echo "NDT diagnostics script not found: ${NDT_DIAGNOSTICS}" >&2; exit 1; }
+
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_DIR="${RUN_ROOT}/${RUN_ID}_${MODE}"
+NDT_LOG_DIR="${RUN_DIR}/ndt"
+mkdir -p "${NDT_LOG_DIR}" "${RUN_DIR}/processes" "${RUN_DIR}/ros"
+printf 'mode=%s\nmap=%s\nbag=%s\nstart_offset=%s\nstarted_utc=%s\n' \
+    "${MODE}" "${MAP_PATH}" "${BAG_PATH}" "${START_OFFSET}" "${RUN_ID}" \
+    > "${RUN_DIR}/run_info.txt"
+echo "[traymover] Run logs: ${RUN_DIR}"
 
 # ROS setup scripts reference optional variables that may be unset.  Source
 # them with nounset temporarily disabled, then restore strict shell checking.
@@ -56,6 +69,7 @@ source "${ROS_SETUP}"
 source "${WS_SETUP}"
 set -u
 export LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH:-}"
+export ROS_LOG_DIR="${RUN_DIR}/ros"
 
 for pkg in fast_lio lidar_localization_ros2 ndt_omp_ros2 traymover_robot_nav; do
     if ! ros2 pkg prefix "${pkg}" >/dev/null 2>&1; then
@@ -64,7 +78,7 @@ for pkg in fast_lio lidar_localization_ros2 ndt_omp_ros2 traymover_robot_nav; do
     fi
 done
 
-if ! ros2 bag info "${BAG_PATH}" >/dev/null 2>&1; then
+if ! ros2 bag info "${BAG_PATH}" > "${RUN_DIR}/bag_info.txt" 2>&1; then
     echo "Unable to read rosbag: ${BAG_PATH}" >&2
     exit 1
 fi
@@ -72,6 +86,14 @@ fi
 launch_pids=()
 control_pid=""
 control_fifo=""
+start_process() {
+    local name="$1"
+    shift
+    local log_file="${RUN_DIR}/processes/${name}.log"
+    echo "[traymover] Starting ${name}; log=${log_file}"
+    "$@" > "${log_file}" 2>&1 &
+    launch_pids+=("$!")
+}
 cleanup() {
     local pid
     if [[ -n "${control_pid:-}" ]] && kill -0 "${control_pid}" 2>/dev/null; then
@@ -115,40 +137,39 @@ if [[ "${MODE}" == "continuous" ]]; then
     [[ -f "${map_yaml}" ]] || { echo "2D map generation failed: ${map_yaml}" >&2; exit 1; }
 
     echo "[traymover] Starting Nav2 + FAST-LIO + NDT (hardware bringup disabled)."
-    ros2 launch traymover_robot_nav traymover_nav.launch.py \
+    start_process nav2 ros2 launch traymover_robot_nav traymover_nav.launch.py \
         use_sim_time:=true \
         bringup_hardware:=false \
         launch_rviz:=true \
         "pcd_path:=${MAP_PATH}" \
-        "map:=${map_yaml}" &
-    launch_pids+=("$!")
+        "map:=${map_yaml}"
     echo "[traymover] Starting sensor-monitor RViz (camera + raw LiDAR)."
-    rviz2 -d "${MONITOR_RVIZ}" &
-    launch_pids+=("$!")
+    start_process sensor_monitor_rviz rviz2 -d "${MONITOR_RVIZ}"
 else
     echo "[traymover] Starting point-cloud preprocessing (no Nav2)."
-    ros2 launch traymover_robot_nav navigation_pointcloud.launch.py \
+    start_process pointcloud_preprocessor ros2 launch traymover_robot_nav navigation_pointcloud.launch.py \
         use_sim_time:=true \
         input_cloud_topic:=/point_cloud_raw \
         localization_cloud_topic:=/point_cloud_localization \
         nav_cloud_topic:=/point_cloud_nav \
-        publish_scan:=false &
-    launch_pids+=("$!")
+        publish_scan:=false
 
     echo "[traymover] Starting FAST-LIO + NDT localization only."
-    ros2 launch traymover_robot_nav lidar_localization.launch.py \
+    start_process localization ros2 launch traymover_robot_nav lidar_localization.launch.py \
         use_sim_time:=true \
         "pcd_path:=${MAP_PATH}" \
-        cloud_topic:=/point_cloud_localization &
-    launch_pids+=("$!")
+        cloud_topic:=/point_cloud_localization
 
     echo "[traymover] Starting RViz (set 2D Pose Estimate manually)."
-    rviz2 -d "${WORKSPACE_DIR}/src/traymover_robot_nav/rviz/traymover_nav.rviz" &
-    launch_pids+=("$!")
+    start_process localization_rviz rviz2 -d "${WORKSPACE_DIR}/src/traymover_robot_nav/rviz/traymover_nav.rviz"
     echo "[traymover] Starting sensor-monitor RViz (camera + raw LiDAR)."
-    rviz2 -d "${MONITOR_RVIZ}" &
-    launch_pids+=("$!")
+    start_process sensor_monitor_rviz rviz2 -d "${MONITOR_RVIZ}"
 fi
+
+start_process ndt_diagnostics python3 "${NDT_DIAGNOSTICS}" \
+    --output-dir "${NDT_LOG_DIR}" \
+    --cloud-topic /point_cloud_localization \
+    --interval-sec "${TRAYMOVER_NDT_LOG_INTERVAL_SEC:-5}"
 
 echo "[traymover] Waiting for stack to initialize..."
 sleep 8
@@ -173,14 +194,14 @@ stop_bag() {
 play_bag() {
     stop_bag
     echo "[traymover] Starting loop playback."
-    ros2 bag play "${bag_args[@]}" --loop &
+    ros2 bag play "${bag_args[@]}" --loop > "${RUN_DIR}/rosbag.log" 2>&1 &
     bag_pid="$!"
     bag_paused=0
 }
 once_bag() {
     stop_bag
     echo "[traymover] Playing bag once."
-    ros2 bag play "${bag_args[@]}" &
+    ros2 bag play "${bag_args[@]}" > "${RUN_DIR}/rosbag.log" 2>&1 &
     bag_pid="$!"
     bag_paused=0
 }
