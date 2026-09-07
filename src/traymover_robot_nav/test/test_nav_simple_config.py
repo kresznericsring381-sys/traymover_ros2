@@ -87,6 +87,24 @@ def test_option10_launch_does_not_route_through_collision_monitor():
     assert "'waypoint_follower'" not in launch_text
 
 
+def test_option10_offline_replay_does_not_resolve_hardware_bringup_package():
+    launch_text = (PKG_ROOT / 'launch' / 'traymover_nav.launch.py').read_text(
+        encoding='utf-8'
+    )
+    hardware_actions_start = launch_text.index('def _create_hardware_actions')
+    launch_start = launch_text.index('def generate_launch_description')
+
+    assert hardware_actions_start < launch_start
+    assert (
+        "bringup_share = get_package_share_directory('turn_on_traymover_robot')"
+        in launch_text[hardware_actions_start:launch_start]
+    )
+    assert 'OpaqueFunction(function=_create_hardware_actions)' in launch_text
+    assert "get_package_share_directory('turn_on_traymover_robot')" not in (
+        launch_text[launch_start:]
+    )
+
+
 def test_lidar_localization_does_not_claim_nav2_map_topic_as_pointcloud():
     localization_source = (
         SRC_ROOT / 'traymover_robot_slam' / 'lidar_localization_ros2' /
@@ -391,7 +409,8 @@ def test_initialpose_is_only_ndt_guess_until_valid_alignment():
     assert 'ndt_aligned_scan_pub_->publish(aligned_scan_msg);' in source
     assert 'max_map_odom_update_translation' in source
     assert 'max_map_odom_update_rotation' in source
-    assert 'NDT map→odom jump' in source
-    assert source.index('NDT map→odom jump') < source.index(
+    assert 'NDT map¡úodom jump' in source
+    assert source.index('NDT map¡úodom jump') < source.index(
         'ndt_aligned_scan_pub_->publish(aligned_scan_msg);'
     )
+

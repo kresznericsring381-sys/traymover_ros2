@@ -1,16 +1,16 @@
 """Launch: Phase 2 full traymover autonomous navigation.
 
 Brings up the full runtime chain:
-  0. (optional) hardware bringup — base_serial + traymover_lidar
+  0. (optional) hardware bringup ¡ª base_serial + traymover_lidar
      (set bringup_hardware:=true for one-command start; default false).
-  1. lidar_localization.launch.py — robot_state_publisher + FAST_LIO online
+  1. lidar_localization.launch.py ¡ª robot_state_publisher + FAST_LIO online
      (publishes /odom = camera_init->body twist) + static TFs stitching
      FAST_LIO frames into base_link + lidar_localization_ros2 (NDT_OMP,
      publishes map -> odom correction against the prebuilt PCD).
-  2. nav2 navigation stack — map_server, planner_server, controller_server,
+  2. nav2 navigation stack ¡ª map_server, planner_server, controller_server,
      bt_navigator, lifecycle_manager.
      controller cmd_vel goes directly to /cmd_vel.
-  3. (optional) RViz — set launch_rviz:=true.
+  3. (optional) RViz ¡ª set launch_rviz:=true.
 
 Common launch invocations:
   # Preferred for real-hardware test (single command, one window):
@@ -30,7 +30,11 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -60,9 +64,33 @@ def find_default_pcd() -> str:
     return DEFAULT_PCD
 
 
+def _create_hardware_actions(context, *args, **kwargs):
+    """Resolve hardware-only package paths only when hardware is requested."""
+    bringup_hardware = LaunchConfiguration('bringup_hardware').perform(context)
+    if bringup_hardware.lower() not in ('true', '1', 'yes', 'on'):
+        return []
+
+    bringup_share = get_package_share_directory('turn_on_traymover_robot')
+    return [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(bringup_share, 'launch', 'base_serial.launch.py')),
+            launch_arguments={
+                'odom_source_mode': 'none',
+            }.items(),
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(bringup_share, 'launch', 'traymover_lidar.launch.py')),
+            launch_arguments={
+                'enable_scan_bridge': 'false',
+            }.items(),
+        ),
+    ]
+
+
 def generate_launch_description():
     nav_share = get_package_share_directory('traymover_robot_nav')
-    bringup_share = get_package_share_directory('turn_on_traymover_robot')
 
     default_params = os.path.join(nav_share, 'config', 'nav2_params.yaml')
     default_map = os.path.join(nav_share, 'map', 'traymover_2d.yaml')
@@ -97,23 +125,6 @@ def generate_launch_description():
         allow_substs=True,
     )
 
-    # 0) Optional hardware bringup (base_serial + traymover_lidar)
-    hw_base = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(bringup_share, 'launch', 'base_serial.launch.py')),
-        condition=IfCondition(bringup_hardware),
-        launch_arguments={
-            'odom_source_mode': 'none',
-        }.items(),
-    )
-    hw_lidar = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(bringup_share, 'launch', 'traymover_lidar.launch.py')),
-        condition=IfCondition(bringup_hardware),
-        launch_arguments={
-            'enable_scan_bridge': 'false',
-        }.items(),
-    )
     pointcloud_pipeline = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(pointcloud_launch),
         launch_arguments={
@@ -213,8 +224,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'pcd_path', default_value=find_default_pcd(),
             description='Prior PCD map loaded by lidar_localization_ros2.'),
-        hw_base,
-        hw_lidar,
+        # Resolve this optional dependency after launch arguments are available.
+        # Offline replay does not install or need the hardware bringup package.
+        OpaqueFunction(function=_create_hardware_actions),
         pointcloud_pipeline,
         localization,
         map_server,
@@ -224,3 +236,4 @@ def generate_launch_description():
         lifecycle_mgr,
         rviz,
     ])
+
