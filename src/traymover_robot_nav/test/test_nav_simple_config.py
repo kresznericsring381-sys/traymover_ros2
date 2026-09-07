@@ -116,6 +116,8 @@ def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
     assert 'TRAYMOVER_REPLAY_LOG_ROOT' in replay_script
     assert 'ROS_LOG_DIR="${RUN_DIR}/ros"' in replay_script
     assert 'start_process ndt_diagnostics' in replay_script
+    assert 'start_ndt_terminal' in replay_script
+    assert 'tail -n +1 -F' in replay_script
     assert '--cloud-topic /point_cloud_localization' in replay_script
     assert 'ndt_events.log' in diagnostics_script
     assert 'ndt_metrics.csv' in diagnostics_script

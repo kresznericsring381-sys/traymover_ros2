@@ -171,6 +171,38 @@ start_process ndt_diagnostics python3 "${NDT_DIAGNOSTICS}" \
     --cloud-topic /point_cloud_localization \
     --interval-sec "${TRAYMOVER_NDT_LOG_INTERVAL_SEC:-5}"
 
+start_ndt_terminal() {
+    local tail_cmd
+    tail_cmd="echo 'NDT diagnostics: ${NDT_LOG_DIR}'; echo 'files: ndt_events.log ndt_rosout.log ndt_metrics.csv'; tail -n +1 -F ${NDT_LOG_DIR@Q}/ndt_events.log ${NDT_LOG_DIR@Q}/ndt_rosout.log"
+
+    local terminal_cmd=""
+    if command -v x-terminal-emulator >/dev/null 2>&1; then
+        terminal_cmd="x-terminal-emulator"
+    elif command -v gnome-terminal >/dev/null 2>&1; then
+        terminal_cmd="gnome-terminal"
+    elif command -v xfce4-terminal >/dev/null 2>&1; then
+        terminal_cmd="xfce4-terminal"
+    elif command -v xterm >/dev/null 2>&1; then
+        terminal_cmd="xterm"
+    fi
+
+    if [[ -z "${terminal_cmd}" ]]; then
+        echo "[traymover] No terminal emulator found; inspect ${NDT_LOG_DIR} for NDT logs."
+        return 1
+    fi
+
+    case "${terminal_cmd}" in
+        gnome-terminal) gnome-terminal -- bash -lc "${tail_cmd}" & ;;
+        xfce4-terminal) xfce4-terminal --command="bash -lc ${tail_cmd@Q}" & ;;
+        xterm) xterm -e bash -lc "${tail_cmd}" & ;;
+        *) x-terminal-emulator -e bash -lc "${tail_cmd}" & ;;
+    esac
+    echo "[traymover] NDT log terminal started."
+    return 0
+}
+
+start_ndt_terminal || true
+
 echo "[traymover] Waiting for stack to initialize..."
 sleep 8
 
