@@ -116,6 +116,10 @@ def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
     assert 'TRAYMOVER_REPLAY_LOG_ROOT' in replay_script
     assert 'ROS_LOG_DIR="${RUN_DIR}/ros"' in replay_script
     assert 'start_process ndt_diagnostics' in replay_script
+    assert 'FASTLIO_DIAGNOSTICS=' in replay_script
+    assert 'start_process fastlio_diagnostics' in replay_script
+    assert 'FASTLIO_LOG_DIR=' in replay_script
+    assert 'start_fastlio_terminal' in replay_script
     assert 'start_ndt_terminal' in replay_script
     assert 'tail -n +1 -F' in replay_script
     assert '--cloud-topic /point_cloud_localization' in replay_script
@@ -123,6 +127,18 @@ def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
     assert 'ndt_metrics.csv' in diagnostics_script
     assert 'ndt_rosout.log' in diagnostics_script
     assert "'/lidar_localization/get_state'" in diagnostics_script
+
+
+def test_fastlio_diagnostics_tracks_odom_and_fastlio_tf():
+    diagnostics_script = (WORKSPACE_ROOT / 'scripts' / 'fastlio_diagnostics.py').read_text(
+        encoding='utf-8'
+    )
+
+    assert 'fastlio_events.log' in diagnostics_script
+    assert 'fastlio_metrics.csv' in diagnostics_script
+    assert "'/odom'" in diagnostics_script
+    assert "('camera_init', 'body')" in diagnostics_script
+    assert 'STALE_ODOM' in diagnostics_script
 
 
 def test_lidar_localization_does_not_claim_nav2_map_topic_as_pointcloud():

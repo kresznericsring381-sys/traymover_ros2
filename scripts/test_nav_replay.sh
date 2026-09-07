@@ -15,6 +15,7 @@ WS_SETUP="${WORKSPACE_DIR}/install/setup.bash"
 PCD2PGM="${WORKSPACE_DIR}/src/traymover_robot_nav/scripts/pcd2pgm.py"
 MONITOR_RVIZ="${WORKSPACE_DIR}/src/traymover_robot_nav/rviz/traymover_sensor_monitor.rviz"
 NDT_DIAGNOSTICS="${WORKSPACE_DIR}/scripts/ndt_diagnostics.py"
+FASTLIO_DIAGNOSTICS="${WORKSPACE_DIR}/scripts/fastlio_diagnostics.py"
 RUNTIME_DIR="${TRAYMOVER_RUNTIME_DIR:-/tmp/traymover_nav_runtime}"
 RUN_ROOT="${TRAYMOVER_REPLAY_LOG_ROOT:-${HOME}/.ros/traymover_nav_replay}"
 
@@ -52,11 +53,13 @@ START_OFFSET="${3:-0}"
 [[ -f "${PCD2PGM}" ]] || { echo "PCD conversion script not found: ${PCD2PGM}" >&2; exit 1; }
 [[ -f "${MONITOR_RVIZ}" ]] || { echo "Sensor monitor RViz config not found: ${MONITOR_RVIZ}" >&2; exit 1; }
 [[ -f "${NDT_DIAGNOSTICS}" ]] || { echo "NDT diagnostics script not found: ${NDT_DIAGNOSTICS}" >&2; exit 1; }
+[[ -f "${FASTLIO_DIAGNOSTICS}" ]] || { echo "FAST-LIO diagnostics script not found: ${FASTLIO_DIAGNOSTICS}" >&2; exit 1; }
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${RUN_ROOT}/${RUN_ID}_${MODE}"
 NDT_LOG_DIR="${RUN_DIR}/ndt"
-mkdir -p "${NDT_LOG_DIR}" "${RUN_DIR}/processes" "${RUN_DIR}/ros"
+FASTLIO_LOG_DIR="${RUN_DIR}/fastlio"
+mkdir -p "${NDT_LOG_DIR}" "${FASTLIO_LOG_DIR}" "${RUN_DIR}/processes" "${RUN_DIR}/ros"
 printf 'mode=%s\nmap=%s\nbag=%s\nstart_offset=%s\nstarted_utc=%s\n' \
     "${MODE}" "${MAP_PATH}" "${BAG_PATH}" "${START_OFFSET}" "${RUN_ID}" \
     > "${RUN_DIR}/run_info.txt"
@@ -171,6 +174,11 @@ start_process ndt_diagnostics python3 "${NDT_DIAGNOSTICS}" \
     --cloud-topic /point_cloud_localization \
     --interval-sec "${TRAYMOVER_NDT_LOG_INTERVAL_SEC:-5}"
 
+start_process fastlio_diagnostics python3 "${FASTLIO_DIAGNOSTICS}" \
+    --output-dir "${FASTLIO_LOG_DIR}" \
+    --odom-topic /odom \
+    --interval-sec "${TRAYMOVER_FASTLIO_LOG_INTERVAL_SEC:-2}"
+
 start_ndt_terminal() {
     local tail_cmd
     tail_cmd="echo 'NDT diagnostics: ${NDT_LOG_DIR}'; echo 'files: ndt_events.log ndt_rosout.log ndt_metrics.csv'; tail -n +1 -F ${NDT_LOG_DIR@Q}/ndt_events.log ${NDT_LOG_DIR@Q}/ndt_rosout.log"
@@ -200,6 +208,38 @@ start_ndt_terminal() {
     echo "[traymover] NDT log terminal started."
     return 0
 }
+
+start_fastlio_terminal() {
+    local tail_cmd
+    tail_cmd="echo 'FAST_LIO diagnostics: ${FASTLIO_LOG_DIR}'; echo 'files: fastlio_events.log fastlio_rosout.log fastlio_metrics.csv'; tail -n +1 -F ${FASTLIO_LOG_DIR@Q}/fastlio_events.log ${FASTLIO_LOG_DIR@Q}/fastlio_rosout.log"
+
+    local terminal_cmd=""
+    if command -v x-terminal-emulator >/dev/null 2>&1; then
+        terminal_cmd="x-terminal-emulator"
+    elif command -v gnome-terminal >/dev/null 2>&1; then
+        terminal_cmd="gnome-terminal"
+    elif command -v xfce4-terminal >/dev/null 2>&1; then
+        terminal_cmd="xfce4-terminal"
+    elif command -v xterm >/dev/null 2>&1; then
+        terminal_cmd="xterm"
+    fi
+
+    if [[ -z "${terminal_cmd}" ]]; then
+        echo "[traymover] No terminal emulator found; inspect ${FASTLIO_LOG_DIR} for FAST-LIO logs."
+        return 1
+    fi
+
+    case "${terminal_cmd}" in
+        gnome-terminal) gnome-terminal -- bash -lc "${tail_cmd}" & ;;
+        xfce4-terminal) xfce4-terminal --command="bash -lc ${tail_cmd@Q}" & ;;
+        xterm) xterm -e bash -lc "${tail_cmd}" & ;;
+        *) x-terminal-emulator -e bash -lc "${tail_cmd}" & ;;
+    esac
+    echo "[traymover] FAST_LIO log terminal started."
+    return 0
+}
+
+start_fastlio_terminal || true
 
 start_ndt_terminal || true
 
