@@ -600,7 +600,9 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     try {
       const auto odom_to_base = tfbuffer_.lookupTransform(
         odom_frame_id_, base_frame_id_, tf2::TimePointZero);
-      const Eigen::Isometry3d map_to_base = final_transformation.cast<double>();
+      Eigen::Isometry3d map_to_base = Eigen::Isometry3d::Identity();
+      map_to_base.linear() = final_transformation.block<3, 3>(0, 0).cast<double>();
+      map_to_base.translation() = final_transformation.block<3, 1>(0, 3).cast<double>();
       const Eigen::Isometry3d odom_to_base_eigen = tf2::transformToEigen(odom_to_base);
       Eigen::Isometry3d map_to_odom = map_to_base * odom_to_base_eigen.inverse();
       if (have_map_odom_tf_) {
