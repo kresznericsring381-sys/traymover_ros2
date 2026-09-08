@@ -95,6 +95,10 @@ fastlio_args=(
     -p publish.dense_publish_en:=false
     -p publish.scan_bodyframe_pub_en:=true
     -p publish.map_en:=true
+    # This embedded target cannot process the full 20 Hz cloud stream in real
+    # time. Slow replay and reduce input points so offline mapping processes
+    # each scan instead of falling behind and losing old queue entries.
+    -p point_filter_num:=${TRAYMOVER_FASTLIO_REPLAY_POINT_FILTER_NUM:-2}
     -p common.lidar_qos_reliable:=${TRAYMOVER_FASTLIO_LIDAR_QOS_RELIABLE:-true}
     -p common.lidar_qos_depth:=${TRAYMOVER_FASTLIO_LIDAR_QOS_DEPTH:-20}
     -p diagnostics.frame_trace:=true
@@ -116,7 +120,8 @@ start_process rviz rviz2 -d "${RVIZ_CONFIG}"
 
 sleep "${TRAYMOVER_FASTLIO_STARTUP_SEC:-5}"
 bag_qos_override="${TRAYMOVER_FASTLIO_BAG_QOS_OVERRIDE:-${FASTLIO_BAG_QOS}}"
-bag_args=("${BAG_PATH}" --clock --topics /point_cloud_raw /imu/data_raw /tf_static)
+bag_rate="${TRAYMOVER_FASTLIO_REPLAY_RATE:-0.2}"
+bag_args=("${BAG_PATH}" --clock --rate "${bag_rate}" --topics /point_cloud_raw /imu/data_raw /tf_static)
 if [[ -n "${bag_qos_override}" ]]; then
     bag_args+=(--qos-profile-overrides-path "${bag_qos_override}")
 fi

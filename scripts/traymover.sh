@@ -335,7 +335,7 @@ action_replay_fastlio_bag() {
     # Let fast_lio subscribe + init before playback starts.
     sleep 3
     spawn_in_terminal "traymover: bag_play" \
-        "ros2 bag play '${bag_path}' --clock --topics /point_cloud_raw /imu/data_raw /tf_static --qos-profile-overrides-path '${FASTLIO_BAG_QOS}'"
+        "ros2 bag play '${bag_path}' --clock --rate 0.2 --topics /point_cloud_raw /imu/data_raw /tf_static --qos-profile-overrides-path '${FASTLIO_BAG_QOS}'"
 }
 
 action_record_fastlio_bag() {

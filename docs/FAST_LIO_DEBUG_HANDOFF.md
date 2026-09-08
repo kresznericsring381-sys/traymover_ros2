@@ -136,6 +136,23 @@ FAST_LIO frame=39 stage=AFTER_IMU
 [ros2run]: Segmentation fault
 ```
 
+The latest reliable-QoS replay changed the failure mode: Fast-LIO receives
+about 20 Hz LiDAR and 100 Hz IMU, but its processing cost is roughly 0.22 s for
+IMU undistortion plus 0.05-0.47 s for EKF/map work. The single-threaded node
+therefore cannot consume a 20 Hz replay. Its subscription queue drops/overruns
+old scans, visible as processed `stamp_gap` values of 0.3-0.75 s, followed by
+registration divergence and `LOST`. This is a throughput/backlog problem after
+QoS, not a broken LiDAR header time axis.
+
+`test_fastlio_replay.sh` now defaults to `--rate 0.2` and
+`point_filter_num=2` for the embedded target. Override them for experiments:
+
+```bash
+TRAYMOVER_FASTLIO_REPLAY_RATE=0.1 \
+TRAYMOVER_FASTLIO_REPLAY_POINT_FILTER_NUM=4 \
+./scripts/test_fastlio_replay.sh <bag_dir>
+```
+
 ## Current Safeguards
 
 Replay defaults currently use:
