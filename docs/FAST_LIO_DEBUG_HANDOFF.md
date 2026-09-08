@@ -76,6 +76,25 @@ PointCloud2 time/t field  -> does FAST_LIO undistort each scan with the right un
 playback. This file is the first artifact to inspect when ROS2 `ros2 topic hz`
 shows 1-5 Hz but ROS1 converted playback appears normal.
 
+For large `PointCloud2` topics, `ros2 topic hz` can itself become a misleading
+measurement because it deserializes every message in Python. Compare it against
+the raw serialized probe:
+
+```bash
+python3 scripts/ros2_raw_topic_rate.py /point_cloud_raw --qos sensor_data
+```
+
+If the raw probe reports about 20 Hz while `ros2 topic hz` reports 1-5 Hz, the
+bag player is publishing but the CLI measurement path cannot keep up. If both
+are slow, test LiDAR playback with best-effort QoS override:
+
+```bash
+ros2 bag play /home/data/rosbags/traymover_20260805_022110_pnm \
+  --clock \
+  --topics /point_cloud_raw /imu/data_raw /tf_static \
+  --qos-profile-overrides-path scripts/qos/fastlio_bag_play.yaml
+```
+
 1. IMU input is stable at about 100 Hz.
 2. Bag metadata reports 17009 LiDAR messages over 853.44 s, nominally about 19.9 Hz.
 3. LiDAR header timestamps are not stable. Confirmed gaps include:
