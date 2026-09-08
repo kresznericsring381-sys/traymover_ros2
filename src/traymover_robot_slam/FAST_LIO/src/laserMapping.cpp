@@ -514,7 +514,7 @@ void map_incremental()
             float dist  = calc_dist(feats_down_world->points[i],mid_point);
             if (fabs(points_near[0].x - mid_point.x) > 0.5 * filter_size_map_min && fabs(points_near[0].y - mid_point.y) > 0.5 * filter_size_map_min && fabs(points_near[0].z - mid_point.z) > 0.5 * filter_size_map_min){
                 PointNoNeedDownsample.push_back(feats_down_world->points[i]);
-                continue;
+                return;
             }
             for (int readd_i = 0; readd_i < NUM_MATCH_POINTS; readd_i ++)
             {
@@ -1199,7 +1199,7 @@ private:
                 kf.change_x(state_before_update);
                 kf.change_P(covariance_before_update);
                 state_point = state_before_update;
-                continue;
+                return;
             }
 
             /******* Publish odometry *******/

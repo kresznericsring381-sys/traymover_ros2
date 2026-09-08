@@ -1,0 +1,118 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /RegisteredCloud1
+        - /FastLIOMap1
+        - /FastLIOPath1
+      Splitter Ratio: 0.5
+  - Class: rviz_common/Views
+    Name: Views
+    Splitter Ratio: 0.5
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Alpha: 0.35
+      Cell Size: 1
+      Color: 160; 160; 164
+      Plane: XY
+      Plane Cell Count: 40
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: RegisteredCloud
+      Alpha: 1
+      Color Transformer: FlatColor
+      Color: 60; 220; 255
+      Decay Time: 0
+      Size (Pixels): 2
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /cloud_registered
+      Use Fixed Frame: true
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: RegisteredBodyCloud
+      Alpha: 0.65
+      Color Transformer: FlatColor
+      Color: 255; 220; 80
+      Decay Time: 0
+      Size (Pixels): 2
+      Style: Points
+      Topic:
+        Depth: 2
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /cloud_registered_body
+      Use Fixed Frame: true
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: FastLIOMap
+      Alpha: 0.55
+      Color Transformer: FlatColor
+      Color: 180; 180; 180
+      Decay Time: 0
+      Size (Pixels): 1
+      Style: Points
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /Laser_map
+      Use Fixed Frame: true
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Name: FastLIOPath
+      Alpha: 1
+      Buffer Length: 1
+      Color: 0; 255; 120
+      Line Style: Lines
+      Line Width: 0.04
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /path
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Frame Timeout: 15
+      Marker Scale: 0.5
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Value: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: camera_init
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 25
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Pitch: 1.1
+      Yaw: 0.7
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz)
