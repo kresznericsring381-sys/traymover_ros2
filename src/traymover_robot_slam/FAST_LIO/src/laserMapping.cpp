@@ -98,6 +98,11 @@ bool   point_selected_surf[100000] = {0};
 bool   lidar_pushed, flg_first_scan = true, flg_exit = false, flg_EKF_inited;
 bool   scan_pub_en = false, dense_pub_en = false, scan_body_pub_en = false;
 bool    is_first_lidar = true;
+int lidar_msg_count = 0;
+int imu_msg_count = 0;
+int odom_publish_count = 0;
+int sync_wait_count = 0;
+int init_wait_count = 0;
 
 vector<vector<int>>  pointSearchInd_surf; 
 vector<BoxPointType> cub_needrm;
@@ -284,6 +289,7 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
 {
     mtx_buffer.lock();
     scan_count ++;
+    lidar_msg_count++;
     double cur_time = get_time_sec(msg->header.stamp);
     double preprocess_start_time = omp_get_wtime();
     if (!is_first_lidar && cur_time < last_timestamp_lidar)
@@ -301,6 +307,12 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(cur_time);
     last_timestamp_lidar = cur_time;
+    if (lidar_msg_count == 1 || lidar_msg_count % 200 == 0)
+    {
+        RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
+          "LiDAR input: count=%d stamp=%.6f buffer_lidar=%zu buffer_imu=%zu",
+          lidar_msg_count, cur_time, lidar_buffer.size(), imu_buffer.size());
+    }
     s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
     mtx_buffer.unlock();
     sig_buffer.notify_all();
@@ -314,6 +326,7 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
     double cur_time = get_time_sec(msg->header.stamp);
     double preprocess_start_time = omp_get_wtime();
     scan_count ++;
+    lidar_msg_count++;
     if (!is_first_lidar && cur_time < last_timestamp_lidar)
     {
         std::cerr << "lidar loop back, clear buffer" << std::endl;
@@ -341,6 +354,12 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
     p_pre->process(msg, ptr);
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(last_timestamp_lidar);
+    if (lidar_msg_count == 1 || lidar_msg_count % 200 == 0)
+    {
+        RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
+          "LiDAR input: count=%d stamp=%.6f buffer_lidar=%zu buffer_imu=%zu",
+          lidar_msg_count, cur_time, lidar_buffer.size(), imu_buffer.size());
+    }
     
     s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
     mtx_buffer.unlock();
@@ -350,6 +369,7 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
 void imu_cbk(const sensor_msgs::msg::Imu::UniquePtr msg_in)
 {
     publish_count ++;
+    imu_msg_count++;
     // cout<<"IMU got at: "<<msg_in->header.stamp.toSec()<<endl;
     sensor_msgs::msg::Imu::SharedPtr msg(new sensor_msgs::msg::Imu(*msg_in));
     
@@ -374,6 +394,12 @@ void imu_cbk(const sensor_msgs::msg::Imu::UniquePtr msg_in)
     last_timestamp_imu = timestamp;
 
     imu_buffer.push_back(msg);
+    if (imu_msg_count == 1 || imu_msg_count % 1000 == 0)
+    {
+        RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
+          "IMU input: count=%d stamp=%.6f buffer_imu=%zu buffer_lidar=%zu",
+          imu_msg_count, timestamp, imu_buffer.size(), lidar_buffer.size());
+    }
     mtx_buffer.unlock();
     sig_buffer.notify_all();
 }
@@ -383,8 +409,16 @@ int    scan_num = 0;
 bool sync_packages(MeasureGroup &meas)
 {
     if (lidar_buffer.empty() || imu_buffer.empty()) {
+        sync_wait_count++;
+        if (sync_wait_count == 1 || sync_wait_count % 200 == 0)
+        {
+            RCLCPP_WARN(rclcpp::get_logger("fastlio_mapping"),
+              "Waiting for synchronized input: lidar_buffer=%zu imu_buffer=%zu last_lidar=%.6f last_imu=%.6f",
+              lidar_buffer.size(), imu_buffer.size(), last_timestamp_lidar, last_timestamp_imu);
+        }
         return false;
     }
+    sync_wait_count = 0;
 
     /*** push a lidar scan ***/
     if(!lidar_pushed)
@@ -414,8 +448,15 @@ bool sync_packages(MeasureGroup &meas)
 
     if (last_timestamp_imu < lidar_end_time)
     {
+        if (++init_wait_count == 1 || init_wait_count % 200 == 0)
+        {
+            RCLCPP_WARN(rclcpp::get_logger("fastlio_mapping"),
+              "Waiting for IMU coverage: lidar_end=%.6f last_imu=%.6f lidar_buffer=%zu imu_buffer=%zu",
+              lidar_end_time, last_timestamp_imu, lidar_buffer.size(), imu_buffer.size());
+        }
         return false;
     }
+    init_wait_count = 0;
 
     /*** push imu data, and pop from imu buffer ***/
     double imu_time = get_time_sec(imu_buffer.front()->header.stamp);
@@ -627,6 +668,7 @@ void set_posestamp(T & out)
 
 void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubOdomAftMapped, std::unique_ptr<tf2_ros::TransformBroadcaster> & tf_br)
 {
+    odom_publish_count++;
     odomAftMapped.header.frame_id = "camera_init";
     odomAftMapped.child_frame_id = "body";
     odomAftMapped.header.stamp = get_ros_time(lidar_end_time);
@@ -656,6 +698,14 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
     trans.transform.rotation.y = odomAftMapped.pose.pose.orientation.y;
     trans.transform.rotation.z = odomAftMapped.pose.pose.orientation.z;
     tf_br->sendTransform(trans);
+    if (odom_publish_count == 1 || odom_publish_count % 20 == 0)
+    {
+        RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
+          "Odometry published: count=%d frame=%s child=%s x=%.3f y=%.3f z=%.3f",
+          odom_publish_count, odomAftMapped.header.frame_id.c_str(),
+          odomAftMapped.child_frame_id.c_str(), odomAftMapped.pose.pose.position.x,
+          odomAftMapped.pose.pose.position.y, odomAftMapped.pose.pose.position.z);
+    }
 }
 
 void publish_path(rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath)
@@ -964,6 +1014,8 @@ private:
                 first_lidar_time = Measures.lidar_beg_time;
                 p_imu->first_lidar_time = first_lidar_time;
                 flg_first_scan = false;
+                RCLCPP_INFO(this->get_logger(), "FAST_LIO first scan received: lidar_beg=%.6f lidar_end=%.6f",
+                  Measures.lidar_beg_time, Measures.lidar_end_time);
                 return;
             }
 
@@ -982,7 +1034,8 @@ private:
 
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
-                RCLCPP_WARN(this->get_logger(), "No point, skip this scan!\n");
+                RCLCPP_WARN(this->get_logger(), "No point, skip this scan! lidar_buffer=%zu imu_buffer=%zu lidar_end=%.6f last_lidar=%.6f last_imu=%.6f",
+                  lidar_buffer.size(), imu_buffer.size(), Measures.lidar_end_time, last_timestamp_lidar, last_timestamp_imu);
                 return;
             }
 
@@ -1009,6 +1062,11 @@ private:
                         pointBodyToWorld(&(feats_down_body->points[i]), &(feats_down_world->points[i]));
                     }
                     ikdtree.Build(feats_down_world->points);
+                    RCLCPP_INFO(this->get_logger(), "FAST_LIO map kdtree initialized: feats_down_size=%d lidar_end=%.6f", feats_down_size, Measures.lidar_end_time);
+                }
+                else
+                {
+                    RCLCPP_WARN(this->get_logger(), "Waiting for enough points to initialize map kdtree: feats_down_size=%d", feats_down_size);
                 }
                 return;
             }
@@ -1020,7 +1078,7 @@ private:
             /*** ICP and iterated Kalman filter update ***/
             if (feats_down_size < 5)
             {
-                RCLCPP_WARN(this->get_logger(), "No point, skip this scan!\n");
+                RCLCPP_WARN(this->get_logger(), "No point, skip this scan! feats_down_size=%d lidar_buffer=%zu imu_buffer=%zu", feats_down_size, lidar_buffer.size(), imu_buffer.size());
                 return;
             }
             
@@ -1103,6 +1161,13 @@ private:
                 fout_out << setw(20) << Measures.lidar_beg_time - first_lidar_time << " " << euler_cur.transpose() << " " << state_point.pos.transpose()<< " " << ext_euler.transpose() << " "<<state_point.offset_T_L_I.transpose()<<" "<< state_point.vel.transpose() \
                 <<" "<<state_point.bg.transpose()<<" "<<state_point.ba.transpose()<<" "<<state_point.grav<<" "<<feats_undistort->points.size()<<endl;
                 dump_lio_state_to_log(fp);
+            }
+            else if (odom_publish_count == 1 || odom_publish_count % 50 == 0)
+            {
+                RCLCPP_INFO(this->get_logger(),
+                  "FAST_LIO state: scans=%d feats=%d map_size=%d pos=(%.3f,%.3f,%.3f) vel=(%.3f,%.3f,%.3f)",
+                  scan_count, feats_down_size, ikdtree.size(), state_point.pos(0), state_point.pos(1),
+                  state_point.pos(2), state_point.vel(0), state_point.vel(1), state_point.vel(2));
             }
         }
     }

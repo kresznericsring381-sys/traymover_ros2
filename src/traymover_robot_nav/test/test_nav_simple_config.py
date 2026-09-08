@@ -141,6 +141,23 @@ def test_fastlio_diagnostics_tracks_odom_and_fastlio_tf():
     assert 'STALE_ODOM' in diagnostics_script
 
 
+def test_fastlio_source_emits_input_and_odom_progress_logs():
+    laser_mapping_source = (
+        SRC_ROOT / 'traymover_robot_slam' / 'FAST_LIO' / 'src' / 'laserMapping.cpp'
+    ).read_text(encoding='utf-8')
+    imu_processing_source = (
+        SRC_ROOT / 'traymover_robot_slam' / 'FAST_LIO' / 'src' / 'IMU_Processing.hpp'
+    ).read_text(encoding='utf-8')
+
+    assert 'LiDAR input: count=' in laser_mapping_source
+    assert 'Waiting for synchronized input:' in laser_mapping_source
+    assert 'Waiting for IMU coverage:' in laser_mapping_source
+    assert 'Odometry published: count=' in laser_mapping_source
+    assert 'FAST_LIO first scan received:' in laser_mapping_source
+    assert 'IMU initialization started:' in imu_processing_source
+    assert 'IMU initialization done:' in imu_processing_source
+
+
 def test_lidar_localization_does_not_claim_nav2_map_topic_as_pointcloud():
     localization_source = (
         SRC_ROOT / 'traymover_robot_slam' / 'lidar_localization_ros2' /

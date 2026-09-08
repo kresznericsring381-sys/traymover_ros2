@@ -165,6 +165,8 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
     Reset();
     N = 1;
     b_first_frame_ = false;
+    RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
+      "IMU initialization started: first_lidar_time=%.6f samples=%zu", meas.lidar_beg_time, meas.imu.size());
     const auto &imu_acc = meas.imu.front()->linear_acceleration;
     const auto &gyr_acc = meas.imu.front()->angular_velocity;
     mean_acc << imu_acc.x, imu_acc.y, imu_acc.z;
@@ -361,7 +363,11 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
 
       cov_acc = cov_acc_scale;
       cov_gyr = cov_gyr_scale;
-      std::cout << "IMU Initial Done" << std::endl;
+      RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
+        "IMU initialization done: gravity=(%.4f, %.4f, %.4f) bias_g=(%.4f, %.4f, %.4f) cov_acc=(%.6f, %.6f, %.6f) cov_gyr=(%.6f, %.6f, %.6f)",
+        imu_state.grav[0], imu_state.grav[1], imu_state.grav[2],
+        imu_state.bg[0], imu_state.bg[1], imu_state.bg[2],
+        cov_acc[0], cov_acc[1], cov_acc[2], cov_gyr[0], cov_gyr[1], cov_gyr[2]);
       // ROS_INFO("IMU Initial Done: Gravity: %.4f %.4f %.4f %.4f; state.bias_g: %.4f %.4f %.4f; acc covarience: %.8f %.8f %.8f; gry covarience: %.8f %.8f %.8f",\
       //          imu_state.grav[0], imu_state.grav[1], imu_state.grav[2], mean_acc.norm(), cov_bias_gyr[0], cov_bias_gyr[1], cov_bias_gyr[2], cov_acc[0], cov_acc[1], cov_acc[2], cov_gyr[0], cov_gyr[1], cov_gyr[2]);
       fout_imu.open(DEBUG_FILE_DIR("imu.txt"),ios::out);
