@@ -123,6 +123,9 @@ def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
     assert 'start_ndt_terminal' in replay_script
     assert 'tail -n +1 -F' in replay_script
     assert '--cloud-topic /point_cloud_localization' in replay_script
+    assert '/point_cloud_raw /imu/data_raw /tf_static)' in replay_script
+    assert '/camera/camera/color/image_raw' not in replay_script
+    assert '/camera/camera/color/camera_info' not in replay_script
     assert 'ndt_events.log' in diagnostics_script
     assert 'ndt_metrics.csv' in diagnostics_script
     assert 'ndt_rosout.log' in diagnostics_script
@@ -136,6 +139,10 @@ def test_fastlio_diagnostics_tracks_odom_and_fastlio_tf():
 
     assert 'fastlio_events.log' in diagnostics_script
     assert 'fastlio_metrics.csv' in diagnostics_script
+    assert "'/point_cloud_raw'" in diagnostics_script
+    assert "'/imu/data_raw'" in diagnostics_script
+    assert 'lidar_rate_hz' in diagnostics_script
+    assert 'imu_rate_hz' in diagnostics_script
     assert "'/odom'" in diagnostics_script
     assert "('camera_init', 'body')" in diagnostics_script
     assert 'STALE_ODOM' in diagnostics_script

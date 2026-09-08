@@ -13,12 +13,15 @@ import rclpy
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import Log as RosoutLog
 from rclpy.parameter import Parameter
+from sensor_msgs.msg import Imu, PointCloud2
 from tf2_msgs.msg import TFMessage
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output-dir', required=True)
+    parser.add_argument('--lidar-topic', default='/point_cloud_raw')
+    parser.add_argument('--imu-topic', default='/imu/data_raw')
     parser.add_argument('--odom-topic', default='/odom')
     parser.add_argument('--interval-sec', type=float, default=2.0)
     return parser.parse_args()
@@ -37,13 +40,19 @@ class FastlioDiagnostics:
         self.started_wall = time.time()
         self.last_rosout_wall = 0.0
         self.counts = {
+            'lidar': 0,
+            'imu': 0,
             'odom': 0,
             'tf': 0,
         }
         self.last_seen_wall = {}
         self.last_odom = None
+        self.last_lidar = None
+        self.last_imu = None
         self.last_tf = {}
         self.last_state = None
+        self.last_report_wall = None
+        self.last_report_counts = dict(self.counts)
         self._closed = False
 
         self.events = open(os.path.join(self.output_dir, 'fastlio_events.log'), 'a', buffering=1)
@@ -53,18 +62,24 @@ class FastlioDiagnostics:
         if os.path.getsize(os.path.join(self.output_dir, 'fastlio_metrics.csv')) == 0:
             self.metrics_writer.writerow([
                 'wall_time', 'ros_time', 'elapsed_sec', 'event',
-                'odom_count', 'odom_age_sec', 'tf_count',
+                'lidar_count', 'lidar_age_sec', 'lidar_rate_hz',
+                'imu_count', 'imu_age_sec', 'imu_rate_hz',
+                'odom_count', 'odom_age_sec', 'odom_rate_hz', 'tf_count',
                 'camera_init_body_age_sec', 'odom_frame_age_sec',
                 'state',
             ])
 
         qos = rclpy.qos.qos_profile_sensor_data
+        self.node.create_subscription(PointCloud2, args.lidar_topic, self.on_lidar, qos)
+        self.node.create_subscription(Imu, args.imu_topic, self.on_imu, qos)
         self.node.create_subscription(Odometry, args.odom_topic, self.on_odom, qos)
         self.node.create_subscription(TFMessage, '/tf', self.on_tf, qos)
         self.node.create_subscription(RosoutLog, '/rosout', self.on_rosout, 100)
         self.timer = self.node.create_timer(self.interval_sec, self.report)
-        self.log_event('START', 'monitor started odom_topic=%s interval_sec=%.1f output_dir=%s' % (
-            args.odom_topic, self.interval_sec, self.output_dir))
+        self.log_event('START', 'monitor started lidar_topic=%s imu_topic=%s odom_topic=%s '
+                       'interval_sec=%.1f output_dir=%s' % (
+                           args.lidar_topic, args.imu_topic, args.odom_topic,
+                           self.interval_sec, self.output_dir))
 
     def now_wall(self):
         return time.time()
@@ -99,6 +114,25 @@ class FastlioDiagnostics:
                 self.log_event('FIRST_ODOM', 'frame=%s child=%s x=%.3f y=%.3f z=%.3f stamp=%.6f' % (
                     self.last_odom[0], self.last_odom[1], self.last_odom[2],
                     self.last_odom[3], self.last_odom[4], self.last_odom[5]))
+
+    def on_lidar(self, msg):
+        with self.lock:
+            self.mark('lidar')
+            self.last_lidar = (
+                msg.header.frame_id, msg.width * msg.height,
+                self.stamp_sec(msg.header.stamp),
+            )
+            if self.counts['lidar'] == 1:
+                self.log_event('FIRST_LIDAR', 'frame=%s points=%d stamp=%.6f' % self.last_lidar)
+
+    def on_imu(self, msg):
+        with self.lock:
+            self.mark('imu')
+            self.last_imu = (
+                msg.header.frame_id, self.stamp_sec(msg.header.stamp),
+            )
+            if self.counts['imu'] == 1:
+                self.log_event('FIRST_IMU', 'frame=%s stamp=%.6f' % self.last_imu)
 
     def on_tf(self, msg):
         with self.lock:
@@ -136,16 +170,37 @@ class FastlioDiagnostics:
         value = self.last_tf.get(key)
         return '' if value is None else '%.3f' % (self.now_wall() - value[0])
 
+    def report_rate(self, key, now_wall):
+        if self.last_report_wall is None:
+            return '-'
+        elapsed = now_wall - self.last_report_wall
+        if elapsed <= 0.0:
+            return '-'
+        return '%.3f' % ((self.counts[key] - self.last_report_counts[key]) / elapsed)
+
     def report(self):
         with self.lock:
             now_wall = self.now_wall()
             ros_time = self.ros_time()
             elapsed = now_wall - self.started_wall
+            lidar_age = self.age('lidar')
+            imu_age = self.age('imu')
             odom_age = self.age('odom')
+            lidar_rate = self.report_rate('lidar', now_wall)
+            imu_rate = self.report_rate('imu', now_wall)
+            odom_rate = self.report_rate('odom', now_wall)
             camera_init_body_age = self.tf_age(('camera_init', 'body'))
             odom_frame_age = self.tf_age(('odom', 'camera_init'))
 
-            if self.counts['odom'] == 0:
+            if self.counts['lidar'] == 0:
+                state = 'WAIT_LIDAR'
+            elif self.counts['imu'] == 0:
+                state = 'WAIT_IMU'
+            elif lidar_age and float(lidar_age) > max(3.0, self.interval_sec * 2.0):
+                state = 'STALE_LIDAR'
+            elif imu_age and float(imu_age) > max(3.0, self.interval_sec * 2.0):
+                state = 'STALE_IMU'
+            elif self.counts['odom'] == 0:
                 state = 'WAIT_ODOM'
             elif ('camera_init', 'body') not in self.last_tf:
                 state = 'WAIT_FASTLIO_TF'
@@ -160,14 +215,22 @@ class FastlioDiagnostics:
 
             self.metrics_writer.writerow([
                 datetime.now(timezone.utc).isoformat(), '%.6f' % ros_time,
-                '%.3f' % elapsed, 'REPORT', self.counts['odom'], odom_age or '-',
-                self.counts['tf'], camera_init_body_age or '-', odom_frame_age or '-',
-                state,
+                '%.3f' % elapsed, 'REPORT', self.counts['lidar'], lidar_age or '-',
+                lidar_rate, self.counts['imu'], imu_age or '-', imu_rate,
+                self.counts['odom'], odom_age or '-', odom_rate, self.counts['tf'],
+                camera_init_body_age or '-', odom_frame_age or '-', state,
             ])
             last_odom = '-' if self.last_odom is None else '%.3f,%.3f,%.3f' % self.last_odom[2:5]
-            self.log_event('REPORT', 'state=%s odom=%d age=%s pose=%s tf=%d camera_init_body_age=%s odom_frame_age=%s' % (
-                state, self.counts['odom'], odom_age or '-', last_odom,
-                self.counts['tf'], camera_init_body_age or '-', odom_frame_age or '-'))
+            self.log_event('REPORT', 'state=%s lidar=%d age=%s rate=%s imu=%d age=%s rate=%s '
+                           'odom=%d age=%s rate=%s pose=%s tf=%d camera_init_body_age=%s '
+                           'odom_frame_age=%s' % (
+                               state, self.counts['lidar'], lidar_age or '-', lidar_rate,
+                               self.counts['imu'], imu_age or '-', imu_rate,
+                               self.counts['odom'], odom_age or '-', odom_rate, last_odom,
+                               self.counts['tf'], camera_init_body_age or '-',
+                               odom_frame_age or '-'))
+            self.last_report_wall = now_wall
+            self.last_report_counts = dict(self.counts)
 
     def close(self):
         if self._closed:

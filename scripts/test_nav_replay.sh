@@ -246,10 +246,10 @@ start_ndt_terminal || true
 echo "[traymover] Waiting for stack to initialize..."
 sleep 8
 
-# Camera topics are intentionally excluded: they are not consumed by this test.
+# FAST-LIO and NDT do not consume camera data in this replay. Excluding the
+# high-bandwidth image topics keeps bag playback focused on the localization chain.
 bag_args=("${BAG_PATH}" --clock --topics \
-    /point_cloud_raw /imu/data_raw /tf_static \
-    /camera/camera/color/image_raw /camera/camera/color/camera_info)
+    /point_cloud_raw /imu/data_raw /tf_static)
 if [[ "${START_OFFSET}" != "0" ]]; then
     bag_args+=(--start-offset "${START_OFFSET}")
 fi
