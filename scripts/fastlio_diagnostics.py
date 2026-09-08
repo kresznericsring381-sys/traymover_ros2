@@ -48,6 +48,11 @@ class FastlioDiagnostics:
         self.last_seen_wall = {}
         self.last_odom = None
         self.last_lidar = None
+        self.last_lidar_stamp = None
+        self.last_lidar_wall = None
+        self.last_lidar_stamp_gap = None
+        self.last_lidar_wall_gap = None
+        self.lidar_gap_count = 0
         self.last_imu = None
         self.last_tf = {}
         self.last_state = None
@@ -63,6 +68,7 @@ class FastlioDiagnostics:
             self.metrics_writer.writerow([
                 'wall_time', 'ros_time', 'elapsed_sec', 'event',
                 'lidar_count', 'lidar_age_sec', 'lidar_rate_hz',
+                'lidar_stamp_gap_sec', 'lidar_wall_gap_sec', 'lidar_gap_count',
                 'imu_count', 'imu_age_sec', 'imu_rate_hz',
                 'odom_count', 'odom_age_sec', 'odom_rate_hz', 'tf_count',
                 'camera_init_body_age_sec', 'odom_frame_age_sec',
@@ -117,11 +123,28 @@ class FastlioDiagnostics:
 
     def on_lidar(self, msg):
         with self.lock:
-            self.mark('lidar')
+            now_wall = self.mark('lidar')
+            stamp = self.stamp_sec(msg.header.stamp)
+            stamp_gap = None if self.last_lidar_stamp is None else stamp - self.last_lidar_stamp
+            wall_gap = None if self.last_lidar_wall is None else now_wall - self.last_lidar_wall
+            if (stamp_gap is not None and (stamp_gap < 0.0 or stamp_gap > 0.15)) or \
+                    (wall_gap is not None and wall_gap > 0.15):
+                self.lidar_gap_count += 1
+                self.log_event(
+                    'LIDAR_GAP',
+                    'count=%d stamp=%.6f stamp_gap=%s wall_gap=%s points=%d' % (
+                        self.counts['lidar'], stamp,
+                        '-' if stamp_gap is None else '%.6f' % stamp_gap,
+                        '-' if wall_gap is None else '%.6f' % wall_gap,
+                        msg.width * msg.height))
             self.last_lidar = (
                 msg.header.frame_id, msg.width * msg.height,
-                self.stamp_sec(msg.header.stamp),
+                stamp,
             )
+            self.last_lidar_stamp_gap = stamp_gap
+            self.last_lidar_wall_gap = wall_gap
+            self.last_lidar_stamp = stamp
+            self.last_lidar_wall = now_wall
             if self.counts['lidar'] == 1:
                 self.log_event('FIRST_LIDAR', 'frame=%s points=%d stamp=%.6f' % self.last_lidar)
 
@@ -148,7 +171,7 @@ class FastlioDiagnostics:
                             t.x, t.y, t.z))
 
     def on_rosout(self, msg):
-        if msg.name not in ('fastlio_mapping', '/fastlio_mapping') and 'fast' not in msg.name.lower():
+        if msg.name not in ('fastlio_mapping', '/fastlio_mapping', 'laser_mapping', '/laser_mapping') and 'fast' not in msg.name.lower():
             return
         with self.lock:
             wall = datetime.now(timezone.utc).isoformat()
@@ -216,7 +239,11 @@ class FastlioDiagnostics:
             self.metrics_writer.writerow([
                 datetime.now(timezone.utc).isoformat(), '%.6f' % ros_time,
                 '%.3f' % elapsed, 'REPORT', self.counts['lidar'], lidar_age or '-',
-                lidar_rate, self.counts['imu'], imu_age or '-', imu_rate,
+                lidar_rate,
+                '-' if self.last_lidar_stamp_gap is None else '%.6f' % self.last_lidar_stamp_gap,
+                '-' if self.last_lidar_wall_gap is None else '%.6f' % self.last_lidar_wall_gap,
+                self.lidar_gap_count,
+                self.counts['imu'], imu_age or '-', imu_rate,
                 self.counts['odom'], odom_age or '-', odom_rate, self.counts['tf'],
                 camera_init_body_age or '-', odom_frame_age or '-', state,
             ])

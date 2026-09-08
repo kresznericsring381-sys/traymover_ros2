@@ -107,6 +107,8 @@ int odom_publish_count = 0;
 int frame_process_count = 0;
 int sync_wait_count = 0;
 int init_wait_count = 0;
+double last_lidar_callback_wall = 0.0;
+double last_lidar_input_stamp = 0.0;
 
 vector<vector<int>>  pointSearchInd_surf; 
 vector<BoxPointType> cub_needrm;
@@ -295,6 +297,9 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
     scan_count ++;
     lidar_msg_count++;
     double cur_time = get_time_sec(msg->header.stamp);
+    const double callback_wall = omp_get_wtime();
+    const double stamp_gap = lidar_msg_count == 1 ? 0.0 : cur_time - last_lidar_input_stamp;
+    const double wall_gap = lidar_msg_count == 1 ? 0.0 : callback_wall - last_lidar_callback_wall;
     double preprocess_start_time = omp_get_wtime();
     if (!is_first_lidar && cur_time < last_timestamp_lidar)
     {
@@ -311,12 +316,16 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(cur_time);
     last_timestamp_lidar = cur_time;
-    if (lidar_msg_count == 1 || lidar_msg_count % 200 == 0)
+    if (lidar_msg_count == 1 || lidar_msg_count % 200 == 0 || stamp_gap < 0.0 || stamp_gap > 0.15 || wall_gap > 0.15)
     {
         RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
-          "LiDAR input: count=%d stamp=%.6f buffer_lidar=%zu buffer_imu=%zu",
-          lidar_msg_count, cur_time, lidar_buffer.size(), imu_buffer.size());
+          "LiDAR input: count=%d stamp=%.6f stamp_gap=%.6f wall_gap=%.6f points=%zu "
+          "buffer_lidar=%zu buffer_imu=%zu",
+          lidar_msg_count, cur_time, stamp_gap, wall_gap, msg->width * msg->height,
+          lidar_buffer.size(), imu_buffer.size());
     }
+    last_lidar_input_stamp = cur_time;
+    last_lidar_callback_wall = callback_wall;
     s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
     mtx_buffer.unlock();
     sig_buffer.notify_all();
