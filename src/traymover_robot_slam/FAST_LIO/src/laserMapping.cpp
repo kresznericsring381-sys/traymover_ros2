@@ -103,7 +103,7 @@ rclcpp::QoS make_lidar_qos()
         return rclcpp::SensorDataQoS();
     }
 
-    rclcpp::QoS qos(rclcpp::KeepLast(lidar_qos_depth));
+    rclcpp::QoS qos{rclcpp::KeepLast(static_cast<size_t>(lidar_qos_depth))};
     qos.reliable();
     qos.durability_volatile();
     return qos;
@@ -348,7 +348,8 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
         RCLCPP_INFO(rclcpp::get_logger("fastlio_mapping"),
           "LiDAR input: count=%d stamp=%.6f stamp_gap=%.6f wall_gap=%.6f points=%zu "
           "buffer_lidar=%zu buffer_imu=%zu",
-          lidar_msg_count, cur_time, stamp_gap, wall_gap, msg->width * msg->height,
+          lidar_msg_count, cur_time, stamp_gap, wall_gap,
+          static_cast<size_t>(msg->width) * static_cast<size_t>(msg->height),
           lidar_buffer.size(), imu_buffer.size());
     }
     last_lidar_input_stamp = cur_time;
