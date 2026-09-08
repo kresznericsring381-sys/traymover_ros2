@@ -23,6 +23,8 @@
             imu_topic: "/imu/data_raw"
             time_sync_en: false
             time_offset_lidar_to_imu: 0.0
+            lidar_qos_reliable: false
+            lidar_qos_depth: 20
 
         preprocess:
             # LSLiDAR CX32 publishes PointCloud2 fields x/y/z/intensity/ring/time.

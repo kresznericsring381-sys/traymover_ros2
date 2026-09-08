@@ -82,11 +82,15 @@ the raw serialized probe:
 
 ```bash
 python3 scripts/ros2_raw_topic_rate.py /point_cloud_raw --qos sensor_data
+python3 scripts/ros2_raw_topic_rate.py /point_cloud_raw --qos reliable
 ```
 
-If the raw probe reports about 20 Hz while `ros2 topic hz` reports 1-5 Hz, the
-bag player is publishing but the CLI measurement path cannot keep up. If both
-are slow, test LiDAR playback with best-effort QoS override:
+Remote testing showed `--qos reliable` receives `/point_cloud_raw` at about
+20 Hz, while `--qos sensor_data` receives the same bag at about 1-5 Hz with
+multi-second gaps. FAST_LIO's PointCloud2 subscription used `SensorDataQoS`, so
+rosbag2 replay starved FAST_LIO even though a reliable subscriber could receive
+the LiDAR stream normally. Offline replay now enables reliable LiDAR QoS in
+FAST_LIO and plays the bag with an explicit reliable QoS override:
 
 ```bash
 ros2 bag play /home/data/rosbags/traymover_20260805_022110_pnm \
@@ -97,7 +101,13 @@ ros2 bag play /home/data/rosbags/traymover_20260805_022110_pnm \
 
 1. IMU input is stable at about 100 Hz.
 2. Bag metadata reports 17009 LiDAR messages over 853.44 s, nominally about 19.9 Hz.
-3. LiDAR header timestamps are not stable. Confirmed gaps include:
+3. Offline bag audit reports `/point_cloud_raw` header timestamps are stable at
+   about 19.94 Hz with no gaps above 0.15 s.
+4. PointCloud2 has fields `x/y/z/intensity/ring/time`; sampled point `time`
+   ranges up to about 0.050 s, so `timestamp_unit=0` is correct.
+5. Runtime `stamp_gap` values seen under the old best-effort replay path were
+   delivery gaps between received messages, not proof that the bag's LiDAR
+   header time axis was broken. Confirmed old runtime gaps included:
 
 ```text
 stamp_gap=0.803954
@@ -107,9 +117,8 @@ stamp_gap=1.358505
 stamp_gap=1.607974
 ```
 
-4. `wall_gap` broadly follows `stamp_gap`, proving these are not only DDS or timer delays. The bag's LiDAR time axis itself has discontinuities.
-5. During stable sections diagnostics observe 19-20 Hz LiDAR reception, but FAST_LIO costs around 0.20 s per processed frame. It therefore cannot keep up with 20 Hz input; `buffer_lidar` reaches about 3-4.
-6. FAST_LIO loses registration around frame 13:
+6. During stable sections diagnostics observe 19-20 Hz LiDAR reception, but FAST_LIO costs around 0.20 s per processed frame. It therefore cannot keep up with 20 Hz input; `buffer_lidar` reaches about 3-4.
+7. FAST_LIO loses registration around frame 13:
 
 ```text
 frame 10: effective_features=1102
@@ -118,9 +127,9 @@ frame 15: effective_features=61
 frame 17: effective_features=0
 ```
 
-7. It publishes only about 9 valid odometry messages in the latest test. After that, diagnostics show `STALE_ODOM` while LiDAR and IMU continue.
-8. The current guard prevents runaway map insertion, but state prediction still diverges. Example rejected-pose values eventually reach hundreds of meters.
-9. Latest standalone process exits with a segmentation fault after frame 39, last visible stage:
+8. It publishes only about 9 valid odometry messages in the latest test. After that, diagnostics show `STALE_ODOM` while LiDAR and IMU continue.
+9. The current guard prevents runaway map insertion, but state prediction still diverges. Example rejected-pose values eventually reach hundreds of meters.
+10. Latest standalone process exits with a segmentation fault after frame 39, last visible stage:
 
 ```text
 FAST_LIO frame=39 stage=AFTER_IMU

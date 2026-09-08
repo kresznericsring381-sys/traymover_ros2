@@ -33,6 +33,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 #include <omp.h>
+#include <algorithm>
 #include <mutex>
 #include <math.h>
 #include <thread>
@@ -74,10 +75,12 @@ double T1[MAXN], s_plot[MAXN], s_plot2[MAXN], s_plot3[MAXN], s_plot4[MAXN], s_pl
 double match_time = 0, solve_time = 0, solve_const_H_time = 0;
 int    kdtree_size_st = 0, kdtree_size_end = 0, add_point_size = 0, kdtree_delete_counter = 0;
 bool   runtime_pos_log = false, pcd_save_en = false, time_sync_en = false, extrinsic_est_en = true, path_en = true;
+bool   lidar_qos_reliable = false;
 bool   frame_trace = false;
 int    min_effective_features = 0;
 double max_update_translation = 0.0;
 int    max_consecutive_rejects = 5;
+int    lidar_qos_depth = 20;
 int    consecutive_rejects = 0;
 bool   fastlio_lost = false;
 /**************************/
@@ -92,6 +95,19 @@ condition_variable sig_buffer;
 
 string root_dir = ROOT_DIR;
 string map_file_path, lid_topic, imu_topic;
+
+rclcpp::QoS make_lidar_qos()
+{
+    if (!lidar_qos_reliable)
+    {
+        return rclcpp::SensorDataQoS();
+    }
+
+    rclcpp::QoS qos(rclcpp::KeepLast(lidar_qos_depth));
+    qos.reliable();
+    qos.durability_volatile();
+    return qos;
+}
 
 double res_mean_last = 0.05, total_residual = 0.0;
 double last_timestamp_lidar = 0, last_timestamp_imu = -1.0;
@@ -904,6 +920,8 @@ public:
         this->declare_parameter<string>("common.imu_topic", "/livox/imu");
         this->declare_parameter<bool>("common.time_sync_en", false);
         this->declare_parameter<double>("common.time_offset_lidar_to_imu", 0.0);
+        this->declare_parameter<bool>("common.lidar_qos_reliable", false);
+        this->declare_parameter<int>("common.lidar_qos_depth", 20);
         this->declare_parameter<double>("filter_size_corner", 0.5);
         this->declare_parameter<double>("filter_size_surf", 0.5);
         this->declare_parameter<double>("filter_size_map", 0.5);
@@ -944,6 +962,9 @@ public:
         this->get_parameter_or<string>("common.imu_topic", imu_topic,"/livox/imu");
         this->get_parameter_or<bool>("common.time_sync_en", time_sync_en, false);
         this->get_parameter_or<double>("common.time_offset_lidar_to_imu", time_diff_lidar_to_imu, 0.0);
+        this->get_parameter_or<bool>("common.lidar_qos_reliable", lidar_qos_reliable, false);
+        this->get_parameter_or<int>("common.lidar_qos_depth", lidar_qos_depth, 20);
+        lidar_qos_depth = std::max(1, lidar_qos_depth);
         this->get_parameter_or<double>("filter_size_corner",filter_size_corner_min,0.5);
         this->get_parameter_or<double>("filter_size_surf",filter_size_surf_min,0.5);
         this->get_parameter_or<double>("filter_size_map",filter_size_map_min,0.5);
@@ -974,6 +995,9 @@ public:
         this->get_parameter_or<vector<double>>("mapping.extrinsic_R", extrinR, vector<double>());
 
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
+        RCLCPP_INFO(this->get_logger(), "FAST_LIO LiDAR QoS: reliability=%s depth=%d",
+                    lidar_qos_reliable ? "reliable" : "best_effort",
+                    lidar_qos_reliable ? lidar_qos_depth : 5);
         RCLCPP_INFO(this->get_logger(),
                     "FAST_LIO diagnostics: frame_trace=%d runtime_pos_log=%d point_filter_num=%d "
                     "min_effective_features=%d max_update_translation=%.3f max_consecutive_rejects=%d",
@@ -1026,13 +1050,21 @@ public:
             cout << "~~~~"<<ROOT_DIR<<" doesn't exist" << endl;
 
         /*** ROS subscribe initialization ***/
+        const auto lidar_qos = make_lidar_qos();
         if (p_pre->lidar_type == AVIA)
         {
-            sub_pcl_livox_ = this->create_subscription<livox_ros_driver2::msg::CustomMsg>(lid_topic, 20, livox_pcl_cbk);
+            if (lidar_qos_reliable)
+            {
+                sub_pcl_livox_ = this->create_subscription<livox_ros_driver2::msg::CustomMsg>(lid_topic, lidar_qos, livox_pcl_cbk);
+            }
+            else
+            {
+                sub_pcl_livox_ = this->create_subscription<livox_ros_driver2::msg::CustomMsg>(lid_topic, 20, livox_pcl_cbk);
+            }
         }
         else
         {
-            sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, rclcpp::SensorDataQoS(), standard_pcl_cbk);
+            sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, lidar_qos, standard_pcl_cbk);
         }
         sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 10, imu_cbk);
         pubLaserCloudFull_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 20);

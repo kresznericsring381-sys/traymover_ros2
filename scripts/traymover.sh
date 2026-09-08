@@ -16,6 +16,7 @@ FASTLIO_PCD_DIR="${WORKSPACE_DIR}/src/traymover_robot_slam/FAST_LIO/PCD"
 FASTLIO_ROSBAG_DIR="${WORKSPACE_DIR}/src/traymover_robot_slam/FAST_LIO/rosbag"
 FASTLIO_POS_LOG="${WORKSPACE_DIR}/src/traymover_robot_slam/FAST_LIO/Log/pos_log.txt"
 FASTLIO_FILTER_STAGING="${FASTLIO_PCD_DIR}/traymover_filtered.pcd"
+FASTLIO_BAG_QOS="${SCRIPT_DIR}/qos/fastlio_bag_play.yaml"
 RECORD_RVIZ_CONFIG="${SCRIPT_DIR}/rviz/traymover_record_rgb_pointcloud.rviz"
 NAV_PKG_DIR="${WORKSPACE_DIR}/src/traymover_robot_nav"
 NAV_MAP_DIR="${NAV_PKG_DIR}/map"
@@ -319,7 +320,7 @@ action_replay_fastlio_bag() {
 
     # Start FAST-LIO first so it's ready to receive scans once the bag plays.
     spawn_in_terminal "traymover: fast_lio (sim_time)" \
-        "ros2 launch fast_lio mapping.launch.py config_file:=traymover.yaml rviz:=true use_sim_time:=true"
+        "ros2 launch fast_lio mapping.launch.py config_file:=traymover.yaml rviz:=true use_sim_time:=true lidar_qos_reliable:=true"
     sleep 2
     spawn_in_terminal "traymover: fastlio_map_filter (sim_time)" \
         "python3 '${NAV_SCRIPTS_DIR}/fastlio_online_map_filter.py' --ros-args \
@@ -334,7 +335,7 @@ action_replay_fastlio_bag() {
     # Let fast_lio subscribe + init before playback starts.
     sleep 3
     spawn_in_terminal "traymover: bag_play" \
-        "ros2 bag play '${bag_path}' --clock"
+        "ros2 bag play '${bag_path}' --clock --topics /point_cloud_raw /imu/data_raw /tf_static --qos-profile-overrides-path '${FASTLIO_BAG_QOS}'"
 }
 
 action_record_fastlio_bag() {

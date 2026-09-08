@@ -1,8 +1,8 @@
 /point_cloud_raw:
-  reliability: best_effort
+  reliability: reliable
   durability: volatile
   history: keep_last
-  depth: 5
+  depth: 20
 
 /tf_static:
   reliability: reliable

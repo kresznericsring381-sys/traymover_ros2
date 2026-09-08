@@ -13,6 +13,7 @@ import rclpy
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import Log as RosoutLog
 from rclpy.parameter import Parameter
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu, PointCloud2
 from tf2_msgs.msg import TFMessage
 
@@ -24,7 +25,19 @@ def parse_args():
     parser.add_argument('--imu-topic', default='/imu/data_raw')
     parser.add_argument('--odom-topic', default='/odom')
     parser.add_argument('--interval-sec', type=float, default=2.0)
+    parser.add_argument('--lidar-qos', choices=('sensor_data', 'reliable'), default='sensor_data')
     return parser.parse_args()
+
+
+def make_lidar_qos(name):
+    if name == 'reliable':
+        return QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=20,
+        )
+    return rclpy.qos.qos_profile_sensor_data
 
 
 class FastlioDiagnostics:
@@ -76,7 +89,9 @@ class FastlioDiagnostics:
             ])
 
         qos = rclpy.qos.qos_profile_sensor_data
-        self.node.create_subscription(PointCloud2, args.lidar_topic, self.on_lidar, qos)
+        self.node.create_subscription(
+            PointCloud2, args.lidar_topic, self.on_lidar,
+            make_lidar_qos(args.lidar_qos))
         self.node.create_subscription(Imu, args.imu_topic, self.on_imu, qos)
         self.node.create_subscription(Odometry, args.odom_topic, self.on_odom, qos)
         self.node.create_subscription(TFMessage, '/tf', self.on_tf, qos)

@@ -11,6 +11,7 @@ ROS_SETUP="/opt/ros/humble/setup.bash"
 WS_SETUP="${WORKSPACE_DIR}/install/setup.bash"
 FASTLIO_DIAGNOSTICS="${WORKSPACE_DIR}/scripts/fastlio_diagnostics.py"
 ROSBAG2_TIMING_AUDIT="${WORKSPACE_DIR}/scripts/rosbag2_timing_audit.py"
+FASTLIO_BAG_QOS="${WORKSPACE_DIR}/scripts/qos/fastlio_bag_play.yaml"
 RVIZ_CONFIG="${WORKSPACE_DIR}/scripts/rviz/fastlio_replay.rviz"
 RUN_ROOT="${TRAYMOVER_FASTLIO_LOG_ROOT:-${HOME}/.ros/traymover_fastlio_replay}"
 
@@ -27,6 +28,7 @@ START_OFFSET="${2:-0}"
 [[ -f "${WS_SETUP}" ]] || { echo "Workspace is not built: ${WS_SETUP}" >&2; exit 1; }
 [[ -f "${FASTLIO_DIAGNOSTICS}" ]] || { echo "FAST-LIO diagnostics not found: ${FASTLIO_DIAGNOSTICS}" >&2; exit 1; }
 [[ -f "${ROSBAG2_TIMING_AUDIT}" ]] || { echo "rosbag2 timing audit not found: ${ROSBAG2_TIMING_AUDIT}" >&2; exit 1; }
+[[ -f "${FASTLIO_BAG_QOS}" ]] || { echo "FAST-LIO bag QoS override not found: ${FASTLIO_BAG_QOS}" >&2; exit 1; }
 [[ -f "${RVIZ_CONFIG}" ]] || { echo "RViz config not found: ${RVIZ_CONFIG}" >&2; exit 1; }
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${RUN_ROOT}/${RUN_ID}"
@@ -93,6 +95,8 @@ fastlio_args=(
     -p publish.dense_publish_en:=false
     -p publish.scan_bodyframe_pub_en:=true
     -p publish.map_en:=true
+    -p common.lidar_qos_reliable:=${TRAYMOVER_FASTLIO_LIDAR_QOS_RELIABLE:-true}
+    -p common.lidar_qos_depth:=${TRAYMOVER_FASTLIO_LIDAR_QOS_DEPTH:-20}
     -p diagnostics.frame_trace:=true
     -p diagnostics.min_effective_features:=${TRAYMOVER_FASTLIO_MIN_FEATURES:-1000}
     -p diagnostics.max_update_translation:=${TRAYMOVER_FASTLIO_MAX_UPDATE_TRANSLATION:-2.0}
@@ -105,12 +109,17 @@ start_process diagnostics python3 "${FASTLIO_DIAGNOSTICS}" \
     --lidar-topic /point_cloud_raw \
     --imu-topic /imu/data_raw \
     --odom-topic /Odometry \
+    --lidar-qos "${TRAYMOVER_FASTLIO_DIAGNOSTICS_LIDAR_QOS:-reliable}" \
     --interval-sec "${TRAYMOVER_FASTLIO_LOG_INTERVAL_SEC:-2}"
 
 start_process rviz rviz2 -d "${RVIZ_CONFIG}"
 
 sleep "${TRAYMOVER_FASTLIO_STARTUP_SEC:-5}"
+bag_qos_override="${TRAYMOVER_FASTLIO_BAG_QOS_OVERRIDE:-${FASTLIO_BAG_QOS}}"
 bag_args=("${BAG_PATH}" --clock --topics /point_cloud_raw /imu/data_raw /tf_static)
+if [[ -n "${bag_qos_override}" ]]; then
+    bag_args+=(--qos-profile-overrides-path "${bag_qos_override}")
+fi
 if [[ "${START_OFFSET}" != "0" ]]; then
     bag_args+=(--start-offset "${START_OFFSET}")
 fi
