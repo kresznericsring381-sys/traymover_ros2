@@ -15,6 +15,7 @@
             # stop a failed registration from polluting the incremental map.
             min_effective_features: 0
             max_update_translation: 0.0
+            max_consecutive_rejects: 5
         map_file_path: "/home/wheeltec/traymover_ros2/src/traymover_robot_slam/FAST_LIO/PCD/traymover_fastlio.pcd"
 
         common:

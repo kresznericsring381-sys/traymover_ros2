@@ -10,6 +10,7 @@ WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ROS_SETUP="/opt/ros/humble/setup.bash"
 WS_SETUP="${WORKSPACE_DIR}/install/setup.bash"
 FASTLIO_DIAGNOSTICS="${WORKSPACE_DIR}/scripts/fastlio_diagnostics.py"
+ROSBAG2_TIMING_AUDIT="${WORKSPACE_DIR}/scripts/rosbag2_timing_audit.py"
 RVIZ_CONFIG="${WORKSPACE_DIR}/scripts/rviz/fastlio_replay.rviz"
 RUN_ROOT="${TRAYMOVER_FASTLIO_LOG_ROOT:-${HOME}/.ros/traymover_fastlio_replay}"
 
@@ -25,6 +26,7 @@ START_OFFSET="${2:-0}"
 [[ -f "${ROS_SETUP}" ]] || { echo "ROS Humble setup not found: ${ROS_SETUP}" >&2; exit 1; }
 [[ -f "${WS_SETUP}" ]] || { echo "Workspace is not built: ${WS_SETUP}" >&2; exit 1; }
 [[ -f "${FASTLIO_DIAGNOSTICS}" ]] || { echo "FAST-LIO diagnostics not found: ${FASTLIO_DIAGNOSTICS}" >&2; exit 1; }
+[[ -f "${ROSBAG2_TIMING_AUDIT}" ]] || { echo "rosbag2 timing audit not found: ${ROSBAG2_TIMING_AUDIT}" >&2; exit 1; }
 [[ -f "${RVIZ_CONFIG}" ]] || { echo "RViz config not found: ${RVIZ_CONFIG}" >&2; exit 1; }
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${RUN_ROOT}/${RUN_ID}"
@@ -49,6 +51,9 @@ ros2 bag info "${BAG_PATH}" > "${RUN_DIR}/bag_info.txt" 2>&1 || {
     echo "Unable to read rosbag: ${BAG_PATH}" >&2
     exit 1
 }
+python3 "${ROSBAG2_TIMING_AUDIT}" "${BAG_PATH}" \
+    --topics /point_cloud_raw /imu/data_raw /camera/camera/color/image_raw \
+    > "${RUN_DIR}/bag_timing_audit.txt" 2>&1 || true
 
 pids=()
 bag_pid=""
@@ -91,6 +96,7 @@ fastlio_args=(
     -p diagnostics.frame_trace:=true
     -p diagnostics.min_effective_features:=${TRAYMOVER_FASTLIO_MIN_FEATURES:-1000}
     -p diagnostics.max_update_translation:=${TRAYMOVER_FASTLIO_MAX_UPDATE_TRANSLATION:-2.0}
+    -p diagnostics.max_consecutive_rejects:=${TRAYMOVER_FASTLIO_MAX_CONSECUTIVE_REJECTS:-5}
 )
 start_process fastlio "${fastlio_args[@]}"
 

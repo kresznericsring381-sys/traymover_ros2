@@ -43,6 +43,7 @@ Logs are written to:
 Important files:
 
 ```text
+bag_timing_audit.txt
 fastlio/fastlio_events.log
 fastlio/fastlio_rosout.log
 fastlio/fastlio_metrics.csv
@@ -59,6 +60,21 @@ Latest locally synced logs:
 ```
 
 ## Latest Findings
+
+ROS1 conversion playback being healthy does **not** by itself clear the ROS2
+bag/playback path. The conversion rewrites the dataset through a different bag
+container, serialization path, and playback scheduler. Treat this as three
+separate questions:
+
+```text
+rosbag2 record timestamp  -> does ROS2 bag playback schedule at the right rate?
+message header.stamp      -> does FAST_LIO see a continuous sensor time axis?
+PointCloud2 time/t field  -> does FAST_LIO undistort each scan with the right unit?
+```
+
+`scripts/test_fastlio_replay.sh` now writes `bag_timing_audit.txt` before
+playback. This file is the first artifact to inspect when ROS2 `ros2 topic hz`
+shows 1-5 Hz but ROS1 converted playback appears normal.
 
 1. IMU input is stable at about 100 Hz.
 2. Bag metadata reports 17009 LiDAR messages over 853.44 s, nominally about 19.9 Hz.

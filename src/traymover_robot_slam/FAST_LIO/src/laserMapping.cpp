@@ -77,6 +77,9 @@ bool   runtime_pos_log = false, pcd_save_en = false, time_sync_en = false, extri
 bool   frame_trace = false;
 int    min_effective_features = 0;
 double max_update_translation = 0.0;
+int    max_consecutive_rejects = 5;
+int    consecutive_rejects = 0;
+bool   fastlio_lost = false;
 /**************************/
 
 float res_last[100000] = {0.0};
@@ -144,6 +147,9 @@ M3D Lidar_R_wrt_IMU(Eye3d);
 MeasureGroup Measures;
 esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
 state_ikfom state_point;
+state_ikfom last_accepted_state;
+esekfom::esekf<state_ikfom, 12, input_ikfom>::cov last_accepted_covariance;
+bool have_accepted_state = false;
 vect3 pos_lid;
 
 nav_msgs::msg::Path path;
@@ -294,6 +300,11 @@ void lasermap_fov_segment()
 void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg) 
 {
     mtx_buffer.lock();
+    if (fastlio_lost)
+    {
+        mtx_buffer.unlock();
+        return;
+    }
     scan_count ++;
     lidar_msg_count++;
     double cur_time = get_time_sec(msg->header.stamp);
@@ -336,6 +347,11 @@ bool   timediff_set_flg = false;
 void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg) 
 {
     mtx_buffer.lock();
+    if (fastlio_lost)
+    {
+        mtx_buffer.unlock();
+        return;
+    }
     double cur_time = get_time_sec(msg->header.stamp);
     double preprocess_start_time = omp_get_wtime();
     scan_count ++;
@@ -381,6 +397,10 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
 
 void imu_cbk(const sensor_msgs::msg::Imu::UniquePtr msg_in)
 {
+    if (fastlio_lost)
+    {
+        return;
+    }
     publish_count ++;
     imu_msg_count++;
     // cout<<"IMU got at: "<<msg_in->header.stamp.toSec()<<endl;
@@ -523,7 +543,7 @@ void map_incremental()
             float dist  = calc_dist(feats_down_world->points[i],mid_point);
             if (fabs(points_near[0].x - mid_point.x) > 0.5 * filter_size_map_min && fabs(points_near[0].y - mid_point.y) > 0.5 * filter_size_map_min && fabs(points_near[0].z - mid_point.z) > 0.5 * filter_size_map_min){
                 PointNoNeedDownsample.push_back(feats_down_world->points[i]);
-                return;
+                continue;
             }
             for (int readd_i = 0; readd_i < NUM_MATCH_POINTS; readd_i ++)
             {
@@ -905,6 +925,7 @@ public:
         this->declare_parameter<bool>("diagnostics.frame_trace", false);
         this->declare_parameter<int>("diagnostics.min_effective_features", 0);
         this->declare_parameter<double>("diagnostics.max_update_translation", 0.0);
+        this->declare_parameter<int>("diagnostics.max_consecutive_rejects", 5);
         this->declare_parameter<bool>("mapping.extrinsic_est_en", true);
         this->declare_parameter<bool>("pcd_save.pcd_save_en", false);
         this->declare_parameter<int>("pcd_save.interval", -1);
@@ -944,6 +965,8 @@ public:
         this->get_parameter_or<bool>("diagnostics.frame_trace", frame_trace, false);
         this->get_parameter_or<int>("diagnostics.min_effective_features", min_effective_features, 0);
         this->get_parameter_or<double>("diagnostics.max_update_translation", max_update_translation, 0.0);
+        this->get_parameter_or<int>("diagnostics.max_consecutive_rejects", max_consecutive_rejects, 5);
+        max_consecutive_rejects = std::max(1, max_consecutive_rejects);
         this->get_parameter_or<bool>("mapping.extrinsic_est_en", extrinsic_est_en, true);
         this->get_parameter_or<bool>("pcd_save.pcd_save_en", pcd_save_en, false);
         this->get_parameter_or<int>("pcd_save.interval", pcd_save_interval, -1);
@@ -953,9 +976,9 @@ public:
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
         RCLCPP_INFO(this->get_logger(),
                     "FAST_LIO diagnostics: frame_trace=%d runtime_pos_log=%d point_filter_num=%d "
-                    "min_effective_features=%d max_update_translation=%.3f",
+                    "min_effective_features=%d max_update_translation=%.3f max_consecutive_rejects=%d",
                     frame_trace, runtime_pos_log, p_pre->point_filter_num,
-                    min_effective_features, max_update_translation);
+                    min_effective_features, max_update_translation, max_consecutive_rejects);
 
         path.header.stamp = this->get_clock()->now();
         path.header.frame_id ="camera_init";
@@ -1119,6 +1142,9 @@ private:
                         pointBodyToWorld(&(feats_down_body->points[i]), &(feats_down_world->points[i]));
                     }
                     ikdtree.Build(feats_down_world->points);
+                    last_accepted_state = kf.get_x();
+                    last_accepted_covariance = kf.get_P();
+                    have_accepted_state = true;
                     RCLCPP_INFO(this->get_logger(), "FAST_LIO map kdtree initialized: feats_down_size=%d lidar_end=%.6f", feats_down_size, Measures.lidar_end_time);
                 }
                 else
@@ -1199,17 +1225,45 @@ private:
                                                 update_translation > max_update_translation;
             if (!state_finite || insufficient_features || excessive_translation)
             {
+                consecutive_rejects++;
                 RCLCPP_WARN(this->get_logger(),
                             "FAST_LIO frame=%d stage=REJECT_UPDATE finite=%d effective_features=%d "
-                            "min_effective_features=%d update_translation=%.3f max_update_translation=%.3f; "
-                            "restoring predicted state and skipping odom/map update",
+                            "min_effective_features=%d update_translation=%.3f max_update_translation=%.3f "
+                            "consecutive_rejects=%d/%d",
                             frame_id, state_finite, effct_feat_num, min_effective_features,
-                            update_translation, max_update_translation);
-                kf.change_x(state_before_update);
-                kf.change_P(covariance_before_update);
-                state_point = state_before_update;
+                            update_translation, max_update_translation,
+                            consecutive_rejects, max_consecutive_rejects);
+                if (consecutive_rejects >= max_consecutive_rejects)
+                {
+                    fastlio_lost = true;
+                    lidar_buffer.clear();
+                    time_buffer.clear();
+                    imu_buffer.clear();
+                    lidar_pushed = false;
+                    if (have_accepted_state)
+                    {
+                        kf.change_x(last_accepted_state);
+                        kf.change_P(last_accepted_covariance);
+                        state_point = last_accepted_state;
+                    }
+                    RCLCPP_ERROR(this->get_logger(),
+                                 "FAST_LIO LOST after %d consecutive rejected frames; "
+                                 "input queues cleared and sensor callbacks disabled",
+                                 consecutive_rejects);
+                }
+                else
+                {
+                    kf.change_x(state_before_update);
+                    kf.change_P(covariance_before_update);
+                    state_point = state_before_update;
+                }
                 return;
             }
+
+            consecutive_rejects = 0;
+            last_accepted_state = kf.get_x();
+            last_accepted_covariance = kf.get_P();
+            have_accepted_state = true;
 
             /******* Publish odometry *******/
             publish_odometry(pubOdomAftMapped_, tf_broadcaster_);
