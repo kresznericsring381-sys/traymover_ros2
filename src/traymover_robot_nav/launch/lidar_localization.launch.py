@@ -57,6 +57,7 @@ def generate_launch_description():
     localization_params = LaunchConfiguration('localization_params')
     urdf_model = LaunchConfiguration('urdf_model')
     use_sim_time = LaunchConfiguration('use_sim_time')
+    publish_fastlio_clouds = LaunchConfiguration('publish_fastlio_clouds')
     cloud_topic = LaunchConfiguration('cloud_topic')
     fastlio_path_topic = LaunchConfiguration('fastlio_path_topic')
     localization_path_topic = LaunchConfiguration('localization_path_topic')
@@ -91,6 +92,12 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'pcd_save.pcd_save_en': False,
                 'publish.map_en': False,
+                # Navigation only needs FAST_LIO odometry and TF.  3D
+                # consumers can keep the default enabled through the launch
+                # argument when they need registered clouds or a path.
+                'publish.path_en': publish_fastlio_clouds,
+                'publish.scan_publish_en': publish_fastlio_clouds,
+                'publish.scan_bodyframe_pub_en': publish_fastlio_clouds,
             },
         ],
         remappings=[
@@ -191,6 +198,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument(
+            'publish_fastlio_clouds', default_value='true',
+            description='Publish FAST_LIO path and registered clouds.'),
         DeclareLaunchArgument(
             'enable_debug', default_value='true',
             description='Print NDT convergence, fitness, and transformation diagnostics.'),

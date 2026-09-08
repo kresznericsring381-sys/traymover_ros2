@@ -106,6 +106,7 @@ def generate_launch_description():
     autostart = LaunchConfiguration('autostart')
     bringup_hardware = LaunchConfiguration('bringup_hardware')
     launch_rviz = LaunchConfiguration('launch_rviz')
+    publish_fastlio_clouds = LaunchConfiguration('publish_fastlio_clouds')
     rviz_config = LaunchConfiguration('rviz_config')
     pcd_path = LaunchConfiguration('pcd_path')
     bt_xml = LaunchConfiguration('bt_xml')
@@ -148,6 +149,7 @@ def generate_launch_description():
             'cloud_topic': '/point_cloud_localization',
             'max_map_odom_update_translation': '0.50',
             'max_map_odom_update_rotation': '0.25',
+            'publish_fastlio_clouds': publish_fastlio_clouds,
         }.items(),
     )
 
@@ -214,6 +216,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'launch_rviz', default_value='false',
             description='Also start RViz with the navigation profile.'),
+        DeclareLaunchArgument(
+            'publish_fastlio_clouds', default_value='false',
+            description='Publish FAST_LIO path and registered clouds; odometry/TF remain enabled.'),
         DeclareLaunchArgument('rviz_config', default_value=default_rviz),
         DeclareLaunchArgument(
             'bt_xml', default_value=default_bt,
@@ -236,4 +241,3 @@ def generate_launch_description():
         lifecycle_mgr,
         rviz,
     ])
-

@@ -126,6 +126,9 @@ def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
     assert '/point_cloud_raw /imu/data_raw /tf_static)' in replay_script
     assert '/camera/camera/color/image_raw' not in replay_script
     assert '/camera/camera/color/camera_info' not in replay_script
+    assert "'publish_fastlio_clouds', default_value='false'" in (
+        (PKG_ROOT / 'launch' / 'traymover_nav.launch.py').read_text(encoding='utf-8')
+    )
     assert 'ndt_events.log' in diagnostics_script
     assert 'ndt_metrics.csv' in diagnostics_script
     assert 'ndt_rosout.log' in diagnostics_script
