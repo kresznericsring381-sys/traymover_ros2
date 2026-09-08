@@ -6,7 +6,11 @@
         filter_size_surf: 0.4
         filter_size_map: 0.4
         cube_side_length: 1000.0
-        runtime_pos_log_enable: true
+        # The legacy runtime log writes and prints on every scan. The replay
+        # diagnostics now provide lower-overhead monitoring instead.
+        runtime_pos_log_enable: false
+        diagnostics:
+            frame_trace: false
         map_file_path: "/home/wheeltec/traymover_ros2/src/traymover_robot_slam/FAST_LIO/PCD/traymover_fastlio.pcd"
 
         common:

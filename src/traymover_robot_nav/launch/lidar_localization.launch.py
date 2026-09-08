@@ -58,6 +58,7 @@ def generate_launch_description():
     urdf_model = LaunchConfiguration('urdf_model')
     use_sim_time = LaunchConfiguration('use_sim_time')
     publish_fastlio_clouds = LaunchConfiguration('publish_fastlio_clouds')
+    fastlio_frame_trace = LaunchConfiguration('fastlio_frame_trace')
     cloud_topic = LaunchConfiguration('cloud_topic')
     fastlio_path_topic = LaunchConfiguration('fastlio_path_topic')
     localization_path_topic = LaunchConfiguration('localization_path_topic')
@@ -98,6 +99,7 @@ def generate_launch_description():
                 'publish.path_en': publish_fastlio_clouds,
                 'publish.scan_publish_en': publish_fastlio_clouds,
                 'publish.scan_bodyframe_pub_en': publish_fastlio_clouds,
+                'diagnostics.frame_trace': fastlio_frame_trace,
             },
         ],
         remappings=[
@@ -201,6 +203,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_fastlio_clouds', default_value='true',
             description='Publish FAST_LIO path and registered clouds.'),
+        DeclareLaunchArgument(
+            'fastlio_frame_trace', default_value='false',
+            description='Emit FAST_LIO per-frame stage diagnostics.'),
         DeclareLaunchArgument(
             'enable_debug', default_value='true',
             description='Print NDT convergence, fitness, and transformation diagnostics.'),

@@ -129,6 +129,9 @@ def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
     assert "'publish_fastlio_clouds', default_value='false'" in (
         (PKG_ROOT / 'launch' / 'traymover_nav.launch.py').read_text(encoding='utf-8')
     )
+    assert "'fastlio_frame_trace', default_value='true'" in (
+        (PKG_ROOT / 'launch' / 'traymover_nav.launch.py').read_text(encoding='utf-8')
+    )
     assert 'ndt_events.log' in diagnostics_script
     assert 'ndt_metrics.csv' in diagnostics_script
     assert 'ndt_rosout.log' in diagnostics_script
@@ -164,6 +167,8 @@ def test_fastlio_source_emits_input_and_odom_progress_logs():
     assert 'Waiting for IMU coverage:' in laser_mapping_source
     assert 'Odometry published: count=' in laser_mapping_source
     assert 'FAST_LIO first scan received:' in laser_mapping_source
+    assert 'stage=BEFORE_EKF' in laser_mapping_source
+    assert 'stage=AFTER_KDTREE' in laser_mapping_source
     assert 'IMU initialization started:' in imu_processing_source
     assert 'IMU initialization done:' in imu_processing_source
 

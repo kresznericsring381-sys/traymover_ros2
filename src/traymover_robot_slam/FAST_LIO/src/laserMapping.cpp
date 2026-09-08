@@ -74,6 +74,7 @@ double T1[MAXN], s_plot[MAXN], s_plot2[MAXN], s_plot3[MAXN], s_plot4[MAXN], s_pl
 double match_time = 0, solve_time = 0, solve_const_H_time = 0;
 int    kdtree_size_st = 0, kdtree_size_end = 0, add_point_size = 0, kdtree_delete_counter = 0;
 bool   runtime_pos_log = false, pcd_save_en = false, time_sync_en = false, extrinsic_est_en = true, path_en = true;
+bool   frame_trace = false;
 /**************************/
 
 float res_last[100000] = {0.0};
@@ -101,6 +102,7 @@ bool    is_first_lidar = true;
 int lidar_msg_count = 0;
 int imu_msg_count = 0;
 int odom_publish_count = 0;
+int frame_process_count = 0;
 int sync_wait_count = 0;
 int init_wait_count = 0;
 
@@ -878,6 +880,7 @@ public:
         this->declare_parameter<int>("point_filter_num", 2);
         this->declare_parameter<bool>("feature_extract_enable", false);
         this->declare_parameter<bool>("runtime_pos_log_enable", false);
+        this->declare_parameter<bool>("diagnostics.frame_trace", false);
         this->declare_parameter<bool>("mapping.extrinsic_est_en", true);
         this->declare_parameter<bool>("pcd_save.pcd_save_en", false);
         this->declare_parameter<int>("pcd_save.interval", -1);
@@ -914,6 +917,7 @@ public:
         this->get_parameter_or<int>("point_filter_num", p_pre->point_filter_num, 2);
         this->get_parameter_or<bool>("feature_extract_enable", p_pre->feature_enabled, false);
         this->get_parameter_or<bool>("runtime_pos_log_enable", runtime_pos_log, 0);
+        this->get_parameter_or<bool>("diagnostics.frame_trace", frame_trace, false);
         this->get_parameter_or<bool>("mapping.extrinsic_est_en", extrinsic_est_en, true);
         this->get_parameter_or<bool>("pcd_save.pcd_save_en", pcd_save_en, false);
         this->get_parameter_or<int>("pcd_save.interval", pcd_save_interval, -1);
@@ -921,6 +925,9 @@ public:
         this->get_parameter_or<vector<double>>("mapping.extrinsic_R", extrinR, vector<double>());
 
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
+        RCLCPP_INFO(this->get_logger(),
+                    "FAST_LIO diagnostics: frame_trace=%d runtime_pos_log=%d point_filter_num=%d",
+                    frame_trace, runtime_pos_log, p_pre->point_filter_num);
 
         path.header.stamp = this->get_clock()->now();
         path.header.frame_id ="camera_init";
@@ -1020,6 +1027,16 @@ private:
             }
 
             double t0,t1,t2,t3,t4,t5,match_start, solve_start, svd_time;
+            const int frame_id = ++frame_process_count;
+
+            if (frame_trace)
+            {
+                RCLCPP_INFO(this->get_logger(),
+                            "FAST_LIO frame=%d stage=BEGIN lidar_beg=%.6f lidar_end=%.6f "
+                            "lidar_points=%zu imu_samples=%zu map_size=%d",
+                            frame_id, Measures.lidar_beg_time, Measures.lidar_end_time,
+                            Measures.lidar->points.size(), Measures.imu.size(), ikdtree.size());
+            }
 
             match_time = 0;
             kdtree_search_time = 0.0;
@@ -1029,6 +1046,12 @@ private:
             t0 = omp_get_wtime();
 
             p_imu->Process(Measures, kf, feats_undistort);
+            if (frame_trace)
+            {
+                RCLCPP_INFO(this->get_logger(),
+                            "FAST_LIO frame=%d stage=AFTER_IMU elapsed=%.6f undistorted_points=%zu",
+                            frame_id, omp_get_wtime() - t0, feats_undistort->points.size());
+            }
             state_point = kf.get_x();
             pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
 
@@ -1049,6 +1072,12 @@ private:
             downSizeFilterSurf.filter(*feats_down_body);
             t1 = omp_get_wtime();
             feats_down_size = feats_down_body->points.size();
+            if (frame_trace)
+            {
+                RCLCPP_INFO(this->get_logger(),
+                            "FAST_LIO frame=%d stage=AFTER_DOWNSAMPLE elapsed=%.6f features=%d",
+                            frame_id, t1 - t0, feats_down_size);
+            }
             /*** initialize the map kdtree ***/
             if(ikdtree.Root_Node == nullptr)
             {
@@ -1107,6 +1136,10 @@ private:
             /*** iterated state estimation ***/
             double t_update_start = omp_get_wtime();
             double solve_H_time = 0;
+            if (frame_trace)
+            {
+                RCLCPP_INFO(this->get_logger(), "FAST_LIO frame=%d stage=BEFORE_EKF", frame_id);
+            }
             kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
             state_point = kf.get_x();
             euler_cur = SO3ToEuler(state_point.rot);
@@ -1117,14 +1150,32 @@ private:
             geoQuat.w = state_point.rot.coeffs()[3];
 
             double t_update_end = omp_get_wtime();
+            if (frame_trace)
+            {
+                RCLCPP_INFO(this->get_logger(),
+                            "FAST_LIO frame=%d stage=AFTER_EKF elapsed=%.6f match=%.6f solve=%.6f "
+                            "effective_features=%d pos=(%.3f,%.3f,%.3f)",
+                            frame_id, t_update_end - t_update_start, match_time, solve_time + solve_H_time,
+                            effct_feat_num, state_point.pos(0), state_point.pos(1), state_point.pos(2));
+            }
 
             /******* Publish odometry *******/
             publish_odometry(pubOdomAftMapped_, tf_broadcaster_);
 
             /*** add the feature points to map kdtree ***/
             t3 = omp_get_wtime();
+            if (frame_trace)
+            {
+                RCLCPP_INFO(this->get_logger(), "FAST_LIO frame=%d stage=BEFORE_KDTREE", frame_id);
+            }
             map_incremental();
             t5 = omp_get_wtime();
+            if (frame_trace)
+            {
+                RCLCPP_INFO(this->get_logger(),
+                            "FAST_LIO frame=%d stage=AFTER_KDTREE elapsed=%.6f added=%d map_size=%d",
+                            frame_id, t5 - t3, add_point_size, ikdtree.size());
+            }
             
             /******* Publish points *******/
             if (path_en)                         publish_path(pubPath_);

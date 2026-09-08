@@ -107,6 +107,7 @@ def generate_launch_description():
     bringup_hardware = LaunchConfiguration('bringup_hardware')
     launch_rviz = LaunchConfiguration('launch_rviz')
     publish_fastlio_clouds = LaunchConfiguration('publish_fastlio_clouds')
+    fastlio_frame_trace = LaunchConfiguration('fastlio_frame_trace')
     rviz_config = LaunchConfiguration('rviz_config')
     pcd_path = LaunchConfiguration('pcd_path')
     bt_xml = LaunchConfiguration('bt_xml')
@@ -150,6 +151,7 @@ def generate_launch_description():
             'max_map_odom_update_translation': '0.50',
             'max_map_odom_update_rotation': '0.25',
             'publish_fastlio_clouds': publish_fastlio_clouds,
+            'fastlio_frame_trace': fastlio_frame_trace,
         }.items(),
     )
 
@@ -219,6 +221,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_fastlio_clouds', default_value='false',
             description='Publish FAST_LIO path and registered clouds; odometry/TF remain enabled.'),
+        DeclareLaunchArgument(
+            'fastlio_frame_trace', default_value='true',
+            description='Emit FAST_LIO per-frame stage diagnostics during navigation replay.'),
         DeclareLaunchArgument('rviz_config', default_value=default_rviz),
         DeclareLaunchArgument(
             'bt_xml', default_value=default_bt,
