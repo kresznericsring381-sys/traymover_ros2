@@ -460,15 +460,26 @@ bool sync_packages(MeasureGroup &meas)
     }
     init_wait_count = 0;
 
-    /*** push imu data, and pop from imu buffer ***/
+    /*** Push IMU data through the scan end, retaining the first boundary
+     * sample so the next scan can use it as its previous-state sample. */
     double imu_time = get_time_sec(imu_buffer.front()->header.stamp);
     meas.imu.clear();
-    while ((!imu_buffer.empty()) && (imu_time < lidar_end_time))
+    while (!imu_buffer.empty())
     {
         imu_time = get_time_sec(imu_buffer.front()->header.stamp);
-        if(imu_time > lidar_end_time) break;
+        const bool reaches_scan_end = imu_time >= lidar_end_time;
         meas.imu.push_back(imu_buffer.front());
         imu_buffer.pop_front();
+        if (reaches_scan_end) break;
+    }
+
+    if (meas.imu.empty())
+    {
+        lidar_pushed = false;
+        RCLCPP_WARN(rclcpp::get_logger("fastlio_mapping"),
+          "Unable to assemble IMU interval: lidar_end=%.6f last_imu=%.6f; retaining LiDAR scan",
+          lidar_end_time, last_timestamp_imu);
+        return false;
     }
 
     lidar_buffer.pop_front();

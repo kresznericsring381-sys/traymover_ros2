@@ -343,7 +343,14 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
   double t1,t2,t3;
   t1 = omp_get_wtime();
 
-  if(meas.imu.empty()) {return;};
+  cur_pcl_un_->clear();
+  if(meas.imu.empty())
+  {
+    RCLCPP_WARN(rclcpp::get_logger("fastlio_mapping"),
+      "IMU processing skipped: empty IMU interval for lidar_beg=%.6f lidar_end=%.6f",
+      meas.lidar_beg_time, meas.lidar_end_time);
+    return;
+  }
   assert(meas.lidar != nullptr);
 
   if (imu_need_init_)

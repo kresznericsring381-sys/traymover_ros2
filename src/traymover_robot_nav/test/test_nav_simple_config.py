@@ -171,6 +171,8 @@ def test_fastlio_source_emits_input_and_odom_progress_logs():
     assert 'stage=AFTER_KDTREE' in laser_mapping_source
     assert 'IMU initialization started:' in imu_processing_source
     assert 'IMU initialization done:' in imu_processing_source
+    assert 'retaining LiDAR scan' in laser_mapping_source
+    assert 'cur_pcl_un_->clear()' in imu_processing_source
 
 
 def test_lidar_localization_does_not_claim_nav2_map_topic_as_pointcloud():
