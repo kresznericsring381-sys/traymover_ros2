@@ -59,6 +59,8 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     publish_fastlio_clouds = LaunchConfiguration('publish_fastlio_clouds')
     fastlio_frame_trace = LaunchConfiguration('fastlio_frame_trace')
+    fastlio_min_effective_features = LaunchConfiguration('fastlio_min_effective_features')
+    fastlio_max_update_translation = LaunchConfiguration('fastlio_max_update_translation')
     cloud_topic = LaunchConfiguration('cloud_topic')
     fastlio_path_topic = LaunchConfiguration('fastlio_path_topic')
     localization_path_topic = LaunchConfiguration('localization_path_topic')
@@ -100,6 +102,8 @@ def generate_launch_description():
                 'publish.scan_publish_en': publish_fastlio_clouds,
                 'publish.scan_bodyframe_pub_en': publish_fastlio_clouds,
                 'diagnostics.frame_trace': fastlio_frame_trace,
+                'diagnostics.min_effective_features': fastlio_min_effective_features,
+                'diagnostics.max_update_translation': fastlio_max_update_translation,
             },
         ],
         remappings=[
@@ -206,6 +210,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'fastlio_frame_trace', default_value='false',
             description='Emit FAST_LIO per-frame stage diagnostics.'),
+        DeclareLaunchArgument(
+            'fastlio_min_effective_features', default_value='0',
+            description='Reject FAST_LIO scan updates with fewer effective features; <=0 disables.'),
+        DeclareLaunchArgument(
+            'fastlio_max_update_translation', default_value='0.0',
+            description='Reject FAST_LIO scan updates whose EKF correction exceeds this many meters; <=0 disables.'),
         DeclareLaunchArgument(
             'enable_debug', default_value='true',
             description='Print NDT convergence, fitness, and transformation diagnostics.'),

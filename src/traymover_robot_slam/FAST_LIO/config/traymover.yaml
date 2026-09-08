@@ -11,6 +11,10 @@
         runtime_pos_log_enable: false
         diagnostics:
             frame_trace: false
+            # Disabled by default. Navigation replay enables these guards to
+            # stop a failed registration from polluting the incremental map.
+            min_effective_features: 0
+            max_update_translation: 0.0
         map_file_path: "/home/wheeltec/traymover_ros2/src/traymover_robot_slam/FAST_LIO/PCD/traymover_fastlio.pcd"
 
         common:

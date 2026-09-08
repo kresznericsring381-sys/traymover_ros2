@@ -108,6 +108,8 @@ def generate_launch_description():
     launch_rviz = LaunchConfiguration('launch_rviz')
     publish_fastlio_clouds = LaunchConfiguration('publish_fastlio_clouds')
     fastlio_frame_trace = LaunchConfiguration('fastlio_frame_trace')
+    fastlio_min_effective_features = LaunchConfiguration('fastlio_min_effective_features')
+    fastlio_max_update_translation = LaunchConfiguration('fastlio_max_update_translation')
     rviz_config = LaunchConfiguration('rviz_config')
     pcd_path = LaunchConfiguration('pcd_path')
     bt_xml = LaunchConfiguration('bt_xml')
@@ -152,6 +154,8 @@ def generate_launch_description():
             'max_map_odom_update_rotation': '0.25',
             'publish_fastlio_clouds': publish_fastlio_clouds,
             'fastlio_frame_trace': fastlio_frame_trace,
+            'fastlio_min_effective_features': fastlio_min_effective_features,
+            'fastlio_max_update_translation': fastlio_max_update_translation,
         }.items(),
     )
 
@@ -224,6 +228,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'fastlio_frame_trace', default_value='true',
             description='Emit FAST_LIO per-frame stage diagnostics during navigation replay.'),
+        DeclareLaunchArgument(
+            'fastlio_min_effective_features', default_value='1000',
+            description='Reject low-feature FAST_LIO updates during navigation replay; <=0 disables.'),
+        DeclareLaunchArgument(
+            'fastlio_max_update_translation', default_value='2.0',
+            description='Reject FAST_LIO EKF corrections above this many meters during navigation replay; <=0 disables.'),
         DeclareLaunchArgument('rviz_config', default_value=default_rviz),
         DeclareLaunchArgument(
             'bt_xml', default_value=default_bt,

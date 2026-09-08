@@ -75,6 +75,8 @@ double match_time = 0, solve_time = 0, solve_const_H_time = 0;
 int    kdtree_size_st = 0, kdtree_size_end = 0, add_point_size = 0, kdtree_delete_counter = 0;
 bool   runtime_pos_log = false, pcd_save_en = false, time_sync_en = false, extrinsic_est_en = true, path_en = true;
 bool   frame_trace = false;
+int    min_effective_features = 0;
+double max_update_translation = 0.0;
 /**************************/
 
 float res_last[100000] = {0.0};
@@ -892,6 +894,8 @@ public:
         this->declare_parameter<bool>("feature_extract_enable", false);
         this->declare_parameter<bool>("runtime_pos_log_enable", false);
         this->declare_parameter<bool>("diagnostics.frame_trace", false);
+        this->declare_parameter<int>("diagnostics.min_effective_features", 0);
+        this->declare_parameter<double>("diagnostics.max_update_translation", 0.0);
         this->declare_parameter<bool>("mapping.extrinsic_est_en", true);
         this->declare_parameter<bool>("pcd_save.pcd_save_en", false);
         this->declare_parameter<int>("pcd_save.interval", -1);
@@ -929,6 +933,8 @@ public:
         this->get_parameter_or<bool>("feature_extract_enable", p_pre->feature_enabled, false);
         this->get_parameter_or<bool>("runtime_pos_log_enable", runtime_pos_log, 0);
         this->get_parameter_or<bool>("diagnostics.frame_trace", frame_trace, false);
+        this->get_parameter_or<int>("diagnostics.min_effective_features", min_effective_features, 0);
+        this->get_parameter_or<double>("diagnostics.max_update_translation", max_update_translation, 0.0);
         this->get_parameter_or<bool>("mapping.extrinsic_est_en", extrinsic_est_en, true);
         this->get_parameter_or<bool>("pcd_save.pcd_save_en", pcd_save_en, false);
         this->get_parameter_or<int>("pcd_save.interval", pcd_save_interval, -1);
@@ -937,8 +943,10 @@ public:
 
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
         RCLCPP_INFO(this->get_logger(),
-                    "FAST_LIO diagnostics: frame_trace=%d runtime_pos_log=%d point_filter_num=%d",
-                    frame_trace, runtime_pos_log, p_pre->point_filter_num);
+                    "FAST_LIO diagnostics: frame_trace=%d runtime_pos_log=%d point_filter_num=%d "
+                    "min_effective_features=%d max_update_translation=%.3f",
+                    frame_trace, runtime_pos_log, p_pre->point_filter_num,
+                    min_effective_features, max_update_translation);
 
         path.header.stamp = this->get_clock()->now();
         path.header.frame_id ="camera_init";
@@ -1147,6 +1155,8 @@ private:
             /*** iterated state estimation ***/
             double t_update_start = omp_get_wtime();
             double solve_H_time = 0;
+            state_ikfom state_before_update = kf.get_x();
+            esekfom::esekf<state_ikfom, 12, input_ikfom>::cov covariance_before_update = kf.get_P();
             if (frame_trace)
             {
                 RCLCPP_INFO(this->get_logger(), "FAST_LIO frame=%d stage=BEFORE_EKF", frame_id);
@@ -1168,6 +1178,28 @@ private:
                             "effective_features=%d pos=(%.3f,%.3f,%.3f)",
                             frame_id, t_update_end - t_update_start, match_time, solve_time + solve_H_time,
                             effct_feat_num, state_point.pos(0), state_point.pos(1), state_point.pos(2));
+            }
+
+            const double update_translation =
+                (state_point.pos - state_before_update.pos).norm();
+            const bool state_finite = state_point.pos.allFinite() && state_point.vel.allFinite() &&
+                                      state_point.rot.coeffs().allFinite();
+            const bool insufficient_features = min_effective_features > 0 &&
+                                               effct_feat_num < min_effective_features;
+            const bool excessive_translation = max_update_translation > 0.0 &&
+                                                update_translation > max_update_translation;
+            if (!state_finite || insufficient_features || excessive_translation)
+            {
+                RCLCPP_WARN(this->get_logger(),
+                            "FAST_LIO frame=%d stage=REJECT_UPDATE finite=%d effective_features=%d "
+                            "min_effective_features=%d update_translation=%.3f max_update_translation=%.3f; "
+                            "restoring predicted state and skipping odom/map update",
+                            frame_id, state_finite, effct_feat_num, min_effective_features,
+                            update_translation, max_update_translation);
+                kf.change_x(state_before_update);
+                kf.change_P(covariance_before_update);
+                state_point = state_before_update;
+                continue;
             }
 
             /******* Publish odometry *******/
