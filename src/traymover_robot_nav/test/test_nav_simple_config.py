@@ -270,7 +270,7 @@ def test_localization_yaml_has_unique_keys_and_far_wall_range():
     assert loc_params['far_point_boost_min_range'] <= 15.0
     assert loc_params['far_point_boost_factor'] == 2
     assert loc_params['voxel_leaf_size'] >= 0.12
-    assert 0.9 <= loc_params['score_threshold'] < 2.0
+    assert 2.5 <= loc_params['score_threshold'] <= 3.5
     assert loc_params['ndt_align_interval_s'] >= 2.0
 
 

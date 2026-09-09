@@ -1,11 +1,10 @@
 /**:
     ros__parameters:
       registration_method: "NDT_OMP"
-      # Live navigation showed good-looking goals aborting because NDT was
-      # rejecting every 0.7-0.9 match and keeping an increasingly stale TF.
-      # Accept usable indoor matches while still rejecting the multi-meter
-      # failures previously seen with scores well above 1.0.
-      score_threshold: 1.0
+      # The PNM map produces valid converged matches around 2.3-3.0 on the
+      # replay cloud after voxel filtering. Keep this above the observed best
+      # bootstrap score while retaining the pose-jump and map->odom gates.
+      score_threshold: 3.0
       ndt_resolution: 0.5
       ndt_step_size: 0.1
       ndt_num_threads: 4
