@@ -185,6 +185,24 @@ def test_lidar_localization_does_not_claim_nav2_map_topic_as_pointcloud():
     assert 'create_subscription<sensor_msgs::msg::PointCloud2>(\n    "map"' not in localization_source
 
 
+def test_option10_remaps_navigation_cloud_into_lidar_localization():
+    localization_source = (
+        SRC_ROOT / 'traymover_robot_slam' / 'lidar_localization_ros2' /
+        'src' / 'lidar_localization_component.cpp'
+    ).read_text(encoding='utf-8')
+    localization_launch = (
+        PKG_ROOT / 'launch' / 'lidar_localization.launch.py'
+    ).read_text(encoding='utf-8')
+    nav_launch = (PKG_ROOT / 'launch' / 'traymover_nav.launch.py').read_text(
+        encoding='utf-8'
+    )
+
+    assert 'create_subscription<sensor_msgs::msg::PointCloud2>(\n    "cloud"' in localization_source
+    assert '"velodyne_points"' not in localization_source
+    assert "('/cloud', cloud_topic)" in localization_launch
+    assert "'cloud_topic': '/point_cloud_localization'" in nav_launch
+
+
 def test_option14_isolates_cmu_path_from_localization_diagnostics():
     launch_text = (PKG_ROOT / 'launch' / 'traymover_3d_nav.launch.py').read_text(
         encoding='utf-8'
