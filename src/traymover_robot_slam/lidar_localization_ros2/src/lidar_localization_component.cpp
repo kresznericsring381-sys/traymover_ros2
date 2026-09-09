@@ -58,6 +58,8 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("lock_planar", false);
   declare_parameter("max_pose_jump_translation", -1.0);
   declare_parameter("max_pose_jump_rotation", -1.0);
+  declare_parameter("max_bootstrap_pose_jump_translation", -1.0);
+  declare_parameter("max_bootstrap_pose_jump_rotation", -1.0);
   declare_parameter("max_map_odom_update_translation", -1.0);
   declare_parameter("max_map_odom_update_rotation", -1.0);
   declare_parameter("ndt_align_interval_s", 0.0);
@@ -220,6 +222,8 @@ void PCLLocalization::initializeParameters()
   get_parameter("lock_planar", lock_planar_);
   get_parameter("max_pose_jump_translation", max_pose_jump_translation_);
   get_parameter("max_pose_jump_rotation", max_pose_jump_rotation_);
+  get_parameter("max_bootstrap_pose_jump_translation", max_bootstrap_pose_jump_translation_);
+  get_parameter("max_bootstrap_pose_jump_rotation", max_bootstrap_pose_jump_rotation_);
   get_parameter("max_map_odom_update_translation", max_map_odom_update_translation_);
   get_parameter("max_map_odom_update_rotation", max_map_odom_update_rotation_);
   get_parameter("ndt_align_interval_s", ndt_align_interval_s_);
@@ -242,7 +246,7 @@ void PCLLocalization::initializeParameters()
   RCLCPP_INFO(get_logger(),"use_odom: %d", use_odom_);
   RCLCPP_INFO(get_logger(),"use_imu: %d", use_imu_);
   RCLCPP_INFO(get_logger(),"enable_debug: %d", enable_debug_);
-  RCLCPP_INFO(get_logger(), "NDT controls: max_iterations=%d align_interval=%.3f jump_translation=%.3f jump_rotation=%.3f map_odom_smoothing=%.2f", ndt_max_iterations_, ndt_align_interval_s_, max_pose_jump_translation_, max_pose_jump_rotation_, map_odom_smoothing_);
+  RCLCPP_INFO(get_logger(), "NDT controls: max_iterations=%d align_interval=%.3f jump_translation=%.3f jump_rotation=%.3f bootstrap_jump_translation=%.3f bootstrap_jump_rotation=%.3f map_odom_smoothing=%.2f", ndt_max_iterations_, ndt_align_interval_s_, max_pose_jump_translation_, max_pose_jump_rotation_, max_bootstrap_pose_jump_translation_, max_bootstrap_pose_jump_rotation_, map_odom_smoothing_);
   RCLCPP_INFO(get_logger(), "map->odom: enabled=%d external_translation_gate=%.3f external_rotation_gate=%.3f", enable_map_odom_tf_, max_map_odom_update_translation_, max_map_odom_update_rotation_);
 }
 
@@ -576,9 +580,15 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   const Eigen::Vector3d init_translation = init_guess.block<3, 1>(0, 3).cast<double>();
   const double jump_translation = (translation - init_translation).norm();
   const double jump_rotation = quaternionAngle(init_quat, final_quat);
-  if ((max_pose_jump_translation_ > 0.0 && jump_translation > max_pose_jump_translation_) ||
-    (max_pose_jump_rotation_ > 0.0 && jump_rotation > max_pose_jump_rotation_)) {
-    RCLCPP_WARN(get_logger(), "NDT map¡úodom jump rejected: translation=%.3f/%.3f rotation=%.3f/%.3f", jump_translation, max_pose_jump_translation_, jump_rotation, max_pose_jump_rotation_);
+  const double allowed_jump_translation =
+    (ndt_bootstrap_pending_ && max_bootstrap_pose_jump_translation_ > 0.0) ?
+    max_bootstrap_pose_jump_translation_ : max_pose_jump_translation_;
+  const double allowed_jump_rotation =
+    (ndt_bootstrap_pending_ && max_bootstrap_pose_jump_rotation_ > 0.0) ?
+    max_bootstrap_pose_jump_rotation_ : max_pose_jump_rotation_;
+  if ((allowed_jump_translation > 0.0 && jump_translation > allowed_jump_translation) ||
+    (allowed_jump_rotation > 0.0 && jump_rotation > allowed_jump_rotation)) {
+    RCLCPP_WARN(get_logger(), "NDT map->odom jump rejected: bootstrap=%d translation=%.3f/%.3f rotation=%.3f/%.3f", ndt_bootstrap_pending_, jump_translation, allowed_jump_translation, jump_rotation, allowed_jump_rotation);
     return;
   }
 

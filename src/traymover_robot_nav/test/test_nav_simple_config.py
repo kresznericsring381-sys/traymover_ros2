@@ -271,6 +271,9 @@ def test_localization_yaml_has_unique_keys_and_far_wall_range():
     assert loc_params['far_point_boost_factor'] == 2
     assert loc_params['voxel_leaf_size'] >= 0.12
     assert 2.5 <= loc_params['score_threshold'] <= 3.5
+    assert 0.25 <= loc_params['max_pose_jump_translation'] <= 0.50
+    assert loc_params['max_bootstrap_pose_jump_translation'] >= 2.0
+    assert loc_params['max_bootstrap_pose_jump_rotation'] >= loc_params['max_pose_jump_rotation']
     assert loc_params['ndt_align_interval_s'] >= 2.0
 
 
@@ -478,6 +481,8 @@ def test_initialpose_is_only_ndt_guess_until_valid_alignment():
     ).read_text(encoding='utf-8')
 
     assert 'ndt_bootstrap_pending_' in header
+    assert 'max_bootstrap_pose_jump_translation_' in header
+    assert 'max_bootstrap_pose_jump_rotation_' in header
     assert 'NDT-validated map->odom only' in header
     assert 'Initialpose accepted as NDT guess only' in source
     assert 'Seeded map' not in source
@@ -497,6 +502,8 @@ def test_initialpose_is_only_ndt_guess_until_valid_alignment():
     assert 'ndt_aligned_scan_pub_->publish(aligned_scan_msg);' in source
     assert 'max_map_odom_update_translation' in source
     assert 'max_map_odom_update_rotation' in source
+    assert 'max_bootstrap_pose_jump_translation_' in source
+    assert 'ndt_bootstrap_pending_ && max_bootstrap_pose_jump_translation_ > 0.0' in source
     assert 'NDT map¡úodom jump' in source
     assert source.index('NDT map¡úodom jump') < source.index(
         'ndt_aligned_scan_pub_->publish(aligned_scan_msg);'

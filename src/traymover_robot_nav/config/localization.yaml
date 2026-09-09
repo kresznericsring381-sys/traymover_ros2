@@ -73,6 +73,12 @@
       # FAST_LIO drift uncorrected until the robot was already badly skewed.
       max_pose_jump_translation: 0.35
       max_pose_jump_rotation: 0.45
+      # Bootstrap is different from steady-state tracking: the first accepted
+      # NDT result may legitimately correct RViz's coarse 2D Pose Estimate by
+      # more than the steady 0.35 m tracking gate. The replay shows valid
+      # converged bootstrap candidates at ~1.2-2.1 m with low yaw correction.
+      max_bootstrap_pose_jump_translation: 2.5
+      max_bootstrap_pose_jump_rotation: 0.60
       # Let FAST_LIO carry short-term odometry and run NDT as a bounded drift
       # correction; 1 Hz NDT was starving TF rebroadcast during navigation.
       ndt_align_interval_s: 2.0

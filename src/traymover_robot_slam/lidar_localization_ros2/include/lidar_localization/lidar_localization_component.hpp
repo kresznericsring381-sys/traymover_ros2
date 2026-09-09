@@ -135,6 +135,8 @@ public:
   double far_point_boost_min_range_{0.0};
   double max_pose_jump_translation_{-1.0};
   double max_pose_jump_rotation_{-1.0};
+  double max_bootstrap_pose_jump_translation_{-1.0};
+  double max_bootstrap_pose_jump_rotation_{-1.0};
   double max_map_odom_update_translation_{-1.0};
   double max_map_odom_update_rotation_{-1.0};
   double ndt_align_interval_s_{0.0};
