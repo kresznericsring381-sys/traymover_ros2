@@ -116,6 +116,9 @@ def test_nav_replay_persists_ndt_diagnostics_separately_from_terminal_output():
     assert 'TRAYMOVER_REPLAY_LOG_ROOT' in replay_script
     assert 'ROS_LOG_DIR="${RUN_DIR}/ros"' in replay_script
     assert 'start_process ndt_diagnostics' in replay_script
+    assert 'PoseWithCovarianceStamped' in diagnostics_script
+    assert "'/pcl_pose'" in diagnostics_script
+    assert 'pose = msg.pose.pose' in diagnostics_script
     assert 'FASTLIO_DIAGNOSTICS=' in replay_script
     assert 'start_process fastlio_diagnostics' in replay_script
     assert 'FASTLIO_LOG_DIR=' in replay_script
@@ -485,6 +488,10 @@ def test_initialpose_is_only_ndt_guess_until_valid_alignment():
     assert 'max_bootstrap_pose_jump_rotation_' in header
     assert 'NDT-validated map->odom only' in header
     assert 'Initialpose accepted as NDT guess only' in source
+    assert 'have_map_odom_tf_ = false' in source
+    assert source.index('have_map_odom_tf_ = false') < source.index(
+        'last_odom_received_time_ = -1.0'
+    )
     assert 'Seeded map' not in source
     assert 'from initialpose' not in source
     assert 'last_align_stamp_s_ = -1.0e9' in source

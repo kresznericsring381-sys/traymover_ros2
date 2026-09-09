@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import Odometry
 from rclpy.parameter import Parameter
@@ -76,7 +76,8 @@ class NdtDiagnostics:
         self.node.create_subscription(PointCloud2, args.cloud_topic, self.on_cloud, qos)
         self.node.create_subscription(Odometry, '/odom', self.on_odom, qos)
         self.node.create_subscription(PoseWithCovarianceStamped, '/initialpose', self.on_initialpose, 10)
-        self.node.create_subscription(PoseStamped, '/pcl_pose', self.on_pcl_pose, 10)
+        self.node.create_subscription(
+            PoseWithCovarianceStamped, '/pcl_pose', self.on_pcl_pose, 10)
         self.node.create_subscription(TFMessage, '/tf', self.on_tf, qos)
         self.node.create_subscription(RosoutLog, '/rosout', self.on_rosout, 100)
         self.lifecycle_client = self.node.create_client(
@@ -139,7 +140,7 @@ class NdtDiagnostics:
     def on_pcl_pose(self, msg):
         with self.lock:
             self.mark('pcl_pose')
-            pose = msg.pose
+            pose = msg.pose.pose
             self.last_pcl_pose = (pose.position.x, pose.position.y, pose.position.z)
             self.log_event('NDT_POSE', 'count=%d x=%.3f y=%.3f z=%.3f frame=%s' % (
                 self.counts['pcl_pose'], pose.position.x, pose.position.y,

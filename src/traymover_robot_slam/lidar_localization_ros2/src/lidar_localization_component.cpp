@@ -360,6 +360,9 @@ void PCLLocalization::initialPoseReceived(const geometry_msgs::msg::PoseWithCova
   initialpose_recieved_ = true;
   ndt_bootstrap_pending_ = true;
   have_good_pose_ = false;
+  // A new initial pose starts a new localization session. Do not compare its
+  // first valid result against the previous map->odom estimate.
+  have_map_odom_tf_ = false;
   last_odom_received_time_ = -1.0;
   last_align_stamp_s_ = -1.0e9;
   corrent_pose_with_cov_stamped_ptr_ = msg;
